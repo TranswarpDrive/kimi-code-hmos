@@ -1,0 +1,7 @@
+{
+  "requestPermissions": [
+    {
+      "name": "ohos.permission.INHERIT_PARENT_PERMISSION"
+    }
+  ]
+}

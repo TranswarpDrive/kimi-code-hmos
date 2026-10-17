@@ -17,6 +17,7 @@ struct Index {
   @State webUrl: string = '';
   @State logTail: string = '';
   @State logExpanded: boolean = false;
+  @State warning: string = '';
   private controller: webview.WebviewController = new webview.WebviewController();
   private bridge: KimiHostBridge = new KimiHostBridge((url: string) => {
     this.openOutside(url);
@@ -49,6 +50,7 @@ struct Index {
   private onStatus(status: ServerStatus): void {
     this.phase = status.phase;
     this.message = status.message;
+    this.warning = status.warning;
     if (status.phase === ServerPhase.FAILED) {
       this.logTail = KimiServer.get().readLogTail(LOG_TAIL_BYTES);
       this.logExpanded = true;
@@ -133,11 +135,36 @@ struct Index {
 
       if (this.phase !== ServerPhase.READY) {
         this.StatusPanel()
+      } else if (this.warning !== '') {
+        this.WarningBanner()
       }
     }
     .width('100%')
     .height('100%')
+    .alignContent(Alignment.Top)
     .backgroundColor($r('app.color.start_window_background'))
+  }
+
+  @Builder
+  WarningBanner() {
+    Row({ space: 12 }) {
+      Text(this.warning)
+        .fontSize(13)
+        .fontColor('#5C3B00')
+        .layoutWeight(1)
+        .copyOption(CopyOptions.LocalDevice)
+      Button('知道了')
+        .fontSize(13)
+        .height(28)
+        .backgroundColor('#E8B44A')
+        .fontColor('#3A2600')
+        .onClick(() => {
+          this.warning = '';
+        })
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+    .backgroundColor('#FFE7A8')
   }
 
   @Builder

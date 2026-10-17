@@ -47,6 +47,17 @@
     ],
     "requestPermissions": [
       {
+        // 受限（ACL）权限：HNP 内的 node 由本应用拉起，其 V8 JIT 所需的可写代码内存权限由本应用提供。
+        // 缺少它时 node 会在启动阶段 SIGTRAP，只能降级 --jitless（而 jitless 下没有 WebAssembly，fetch 不可用）。
+        // 调试 Profile 由 devecocli signature generate 自动带上该 ACL；上架需另行向 AGC 申请。
+        "name": "ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY"
+      },
+      {
+        // 2in1 专属（无需 ACL）：随包 bin 在其 .permission 节中声明它后，被拉起时继承本应用的 system_grant 权限。
+        // bin 声明的权限不能超出本应用声明的权限，所以这里也要声明。
+        "name": "ohos.permission.INHERIT_PARENT_PERMISSION"
+      },
+      {
         "name": "ohos.permission.INTERNET"
       },
       {
@@ -86,13 +97,21 @@
         }
       }
     ],
-    // 私有 HNP：安装后位于沙箱 /data/app/<name>.org/<name>_<version>/
-    // .hnp 文件由 scripts/build-hnp.sh 生成到 entry/hnp/arm64-v8a/，构建时由 entry/hvigorfile.ts 注入 HAP
-    "hnpPackages": [
+    // 解压模式：libs 安装时解压成真实文件（executableBinaryPaths 的前提）
+    "compressNativeLibs": true,
+    // 2in1「应用程序包集成 bin 文件」（API 24+）：声明的二进制会获得本应用的内核权限（JIT）
+    // node 由 scripts/stage-runtime.sh 放到 entry/libs/arm64-v8a/
+    "executableBinaryPaths": [
       {
-        "package": "node.hnp",
-        "type": "private"
+        "path": "libs/arm64-v8a/node"
       },
+      {
+        "path": "libs/arm64-v8a/jitprobe"
+      }
+    ],
+    // 私有 HNP：安装后位于沙箱 /data/app/<name>.org/<name>_<version>/
+    // .hnp 由 scripts/stage-runtime.sh 生成到 entry/hnp/arm64-v8a/，构建时由 entry/hvigorfile.ts 注入 HAP
+    "hnpPackages": [
       {
         "package": "kimicode.hnp",
         "type": "private"

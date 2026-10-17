@@ -14,8 +14,10 @@
 #include <cerrno>
 #include <csignal>
 #include <cstring>
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <string>
+#include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
@@ -338,6 +340,47 @@ napi_value Kill(napi_env env, napi_callback_info info)
     return result;
 }
 
+// nativeLibDir(): string —— 本 so 所在目录。compressNativeLibs=true 时 libs 会解压成真实文件，
+// executableBinaryPaths 声明的 node 也在这里。
+napi_value NativeLibDir(napi_env env, napi_callback_info info)
+{
+    (void)info;
+    Dl_info dlInfo;
+    std::string dir;
+    if (dladdr(reinterpret_cast<void *>(&NativeLibDir), &dlInfo) != 0 && dlInfo.dli_fname != nullptr) {
+        dir = dlInfo.dli_fname;
+        size_t slash = dir.find_last_of('/');
+        dir = slash == std::string::npos ? std::string() : dir.substr(0, slash);
+    }
+    napi_value result = nullptr;
+    napi_create_string_utf8(env, dir.c_str(), dir.size(), &result);
+    return result;
+}
+
+// probeJit(): string —— 诊断用：在当前进程里测试 V8 JIT 依赖的两种匿名可执行内存操作，返回 errno 摘要
+napi_value ProbeJit(napi_env env, napi_callback_info info)
+{
+    (void)info;
+    const size_t size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+    std::string result;
+    void *rwx = mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    result += rwx == MAP_FAILED ? "mmap(RWX)=errno " + std::to_string(errno) : std::string("mmap(RWX)=ok");
+    if (rwx != MAP_FAILED) {
+        munmap(rwx, size);
+    }
+    void *rw = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (rw == MAP_FAILED) {
+        result += "; mmap(RW)=errno " + std::to_string(errno);
+    } else {
+        int ret = mprotect(rw, size, PROT_READ | PROT_EXEC);
+        result += ret == 0 ? "; mprotect(RW->RX)=ok" : "; mprotect(RW->RX)=errno " + std::to_string(errno);
+        munmap(rw, size);
+    }
+    napi_value value = nullptr;
+    napi_create_string_utf8(env, result.c_str(), result.size(), &value);
+    return value;
+}
+
 // isAlive(pid): boolean
 napi_value IsAlive(napi_env env, napi_callback_info info)
 {
@@ -360,6 +403,8 @@ static napi_value Init(napi_env env, napi_value exports)
         {"spawn", nullptr, Spawn, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"kill", nullptr, Kill, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isAlive", nullptr, IsAlive, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeLibDir", nullptr, NativeLibDir, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"probeJit", nullptr, ProbeJit, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     return exports;

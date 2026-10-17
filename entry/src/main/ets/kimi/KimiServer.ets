@@ -5,7 +5,7 @@ import { http } from '@kit.NetworkKit';
 import { process, util } from '@kit.ArkTS';
 import kimihost from 'libkimihost.so';
 import { Log } from './Log';
-import { KIMI_CODE_VERSION, KIMI_HNP_ROOT, NODE_HNP_ROOT, NODE_VERSION } from './RuntimeInfo';
+import { KIMI_CODE_VERSION, KIMI_HNP_ROOT, NODE_VERSION } from './RuntimeInfo';
 
 export enum ServerPhase {
   IDLE = 'idle',
@@ -22,6 +22,8 @@ export class ServerStatus {
   port: number = 0;
   pid: number = 0;
   message: string = '';
+  /** 降级运行时给用户的提示（如 jitless 模式），为空表示正常 */
+  warning: string = '';
 }
 
 export type StatusListener = (status: ServerStatus) => void;
@@ -31,14 +33,13 @@ class ExitInfo {
   signal: number = 0;
 }
 
-/** 壳自身的持久化设置（filesDir/shell-settings.json） */
-class ShellSettings {
-  /** 设备拒绝 V8 JIT 时自动置为 true */
-  jitless: boolean = false;
-}
-
 // SIGILL、SIGTRAP、SIGABRT、SIGBUS、SIGSEGV：V8 申请可执行内存失败时的典型死法
 const JIT_CRASH_SIGNALS: number[] = [4, 5, 6, 7, 11];
+const JITLESS_WARNING: string = '未获得 JIT 权限，Kimi Code 以 jitless 模式运行，联网功能可能不可用。' +
+  '请确认签名 Profile 含 ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY 后重新安装。';
+const LOG_FORWARD_INTERVAL_MS: number = 1000;
+const LOG_FORWARD_MAX_BYTES: number = 64 * 1024;
+const LOG_FORWARD_MAX_LINE: number = 900;
 
 const PREFERRED_PORT: number = 58637; // 避开终端里 `kimi web` 的默认端口 58627
 const PORT_ATTEMPTS: number = 20;
@@ -121,9 +122,13 @@ export class KimiServer {
   homeDir: string = '';
   logPath: string = '';
   private pidPath: string = '';
-  private settingsPath: string = '';
+  /** 本次启动是否已降级为 --jitless；每次 start() 都先尝试 JIT */
   private jitless: boolean = false;
   private lastExit: ExitInfo | null = null;
+  private forwardOffset: number = 0;
+  private forwardTimer: number = -1;
+  /** 解压后的原生库目录：node（executableBinaryPaths）、libc++_shared.so、libkimicompat.so */
+  private libDir: string = '';
 
   static get(): KimiServer {
     if (KimiServer.instance === null) {
@@ -141,8 +146,9 @@ export class KimiServer {
     ensureDir(`${context.filesDir}/workspace`);
     this.logPath = `${logDir}/kimi-server.log`;
     this.pidPath = `${logDir}/kimi-server.pid`;
-    this.settingsPath = `${context.filesDir}/shell-settings.json`;
-    this.loadSettings();
+    this.libDir = kimihost.nativeLibDir();
+    Log.info(`native lib dir: ${this.libDir}`);
+    this.startLogForwarding();
   }
 
   getStatus(): ServerStatus {
@@ -164,6 +170,7 @@ export class KimiServer {
     next.port = this.status.port;
     next.pid = this.status.pid;
     next.url = phase === ServerPhase.READY ? this.status.url : '';
+    next.warning = phase === ServerPhase.READY && this.jitless ? JITLESS_WARNING : '';
     this.status = next;
     Log.info(`server ${phase}: ${message}`);
     for (const listener of this.listeners) {
@@ -172,7 +179,7 @@ export class KimiServer {
   }
 
   get nodePath(): string {
-    return `${NODE_HNP_ROOT}/bin/node`;
+    return `${this.libDir}/node`;
   }
 
   /** 默认工作目录：有“文档”目录权限时用它，否则用应用沙箱内的 workspace */
@@ -191,21 +198,23 @@ export class KimiServer {
       return;
     }
     const seq = ++this.startSeq;
+    this.jitless = false;
     this.update(ServerPhase.STARTING, '正在检查内置运行时…');
     try {
       this.killStaleServer();
       this.rotateLog();
       this.assertRuntimeInstalled();
+      this.runJitDiagnostics();
       try {
         await this.launch(seq);
       } catch (err) {
         if (seq !== this.startSeq || this.jitless || !this.exitLooksLikeJitFailure()) {
           throw err as Error;
         }
-        // V8 JIT 需要可执行的匿名内存；若被 W^X 拒绝，node 会在启动阶段崩溃，改用 --jitless 重试并记住
+        // V8 JIT 需要可写可执行的匿名内存；应用没有 ALLOW_WRITABLE_CODE_MEMORY 时 node 会在启动阶段崩溃，
+        // 降级 --jitless 重试（代价是没有 WebAssembly，Node 内置 fetch 依赖它）
         Log.warn('node crashed during startup, retrying with --jitless');
         this.jitless = true;
-        this.saveSettings();
         await this.launch(seq);
       }
     } catch (err) {
@@ -240,6 +249,25 @@ export class KimiServer {
     this.update(ServerPhase.READY, `已就绪（pid ${pid}${mode}）`);
   }
 
+  /** 诊断：应用主进程与被拉起的子进程（jitprobe）能否申请可执行内存，结果写入日志（并转发到 hilog） */
+  private runJitDiagnostics(): void {
+    try {
+      Log.info(`jit probe (app process): ${kimihost.probeJit()}`);
+      const probe = `${this.libDir}/jitprobe`;
+      if (pathExists(probe)) {
+        kimihost.spawn({
+          file: probe,
+          args: [probe],
+          env: this.buildEnv(),
+          cwd: this.homeDir,
+          logPath: this.logPath
+        });
+      }
+    } catch (err) {
+      Log.warn(`jit diagnostics failed: ${String(err)}`);
+    }
+  }
+
   private exitLooksLikeJitFailure(): boolean {
     const exit = this.lastExit;
     if (exit === null) {
@@ -256,24 +284,55 @@ export class KimiServer {
     return exit.signal > 0 ? `被信号 ${exit.signal} 结束` : `退出码 ${exit.code}`;
   }
 
-  private loadSettings(): void {
+  /**
+   * 沙箱内的日志文件用 hdc 读不到，所以把 node 的输出同步转发到 hilog（tag KimiShell，前缀 [node]），
+   * 便于 `hdc shell hilog -x -T KimiShell` 远程排障。token 会被打码。
+   */
+  private startLogForwarding(): void {
     try {
-      if (pathExists(this.settingsPath)) {
-        const settings = JSON.parse(readText(this.settingsPath)) as ShellSettings;
-        this.jitless = settings.jitless === true;
-      }
+      this.forwardOffset = pathExists(this.logPath) ? fs.statSync(this.logPath).size : 0;
     } catch (err) {
-      Log.warn(`load settings failed: ${String(err)}`);
+      this.forwardOffset = 0;
+    }
+    if (this.forwardTimer < 0) {
+      this.forwardTimer = setInterval(() => {
+        this.forwardLog();
+      }, LOG_FORWARD_INTERVAL_MS);
     }
   }
 
-  private saveSettings(): void {
+  private forwardLog(): void {
     try {
-      const settings = new ShellSettings();
-      settings.jitless = this.jitless;
-      writeText(this.settingsPath, JSON.stringify(settings), false);
+      if (!pathExists(this.logPath)) {
+        return;
+      }
+      const size = fs.statSync(this.logPath).size;
+      if (size < this.forwardOffset) {
+        this.forwardOffset = 0; // 日志被轮转
+      }
+      if (size === this.forwardOffset) {
+        return;
+      }
+      const length = Math.min(size - this.forwardOffset, LOG_FORWARD_MAX_BYTES);
+      const file = fs.openSync(this.logPath, fs.OpenMode.READ_ONLY);
+      const buffer = new ArrayBuffer(length);
+      try {
+        fs.readSync(file.fd, buffer, { offset: this.forwardOffset, length: length });
+      } finally {
+        fs.closeSync(file);
+      }
+      this.forwardOffset += length;
+      const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
+      const text = decoder.decodeToString(new Uint8Array(buffer), { stream: false });
+      for (const line of text.split('\n')) {
+        const trimmed = line.trimEnd();
+        if (trimmed.length > 0) {
+          const safe = trimmed.replace(/(#token=|Token:\s*)[A-Za-z0-9_-]+/g, '$1***');
+          Log.info(`[node] ${safe.substring(0, LOG_FORWARD_MAX_LINE)}`);
+        }
+      }
     } catch (err) {
-      Log.warn(`save settings failed: ${String(err)}`);
+      // 转发只是辅助手段，失败不影响服务
     }
   }
 
@@ -298,6 +357,10 @@ export class KimiServer {
   stopNow(): void {
     this.startSeq++;
     this.stopProcess();
+    if (this.forwardTimer >= 0) {
+      clearInterval(this.forwardTimer);
+      this.forwardTimer = -1;
+    }
   }
 
   private stopProcess(): void {
@@ -365,12 +428,13 @@ export class KimiServer {
   private assertRuntimeInstalled(): void {
     const required: string[] = [
       this.nodePath,
+      `${this.libDir}/libkimicompat.so`,
       `${KIMI_HNP_ROOT}/package/dist/main.mjs`,
       `${KIMI_HNP_ROOT}/runtime/ohos-preload.cjs`
     ];
     for (const path of required) {
       if (!pathExists(path)) {
-        throw new Error(`内置运行时缺失：${path}\n请确认 HAP 中包含 HNP 包，并已完整安装。`);
+        throw new Error(`内置运行时缺失：${path}\n请确认 HAP 包含 libs/arm64-v8a/node 与 kimicode.hnp，并已完整安装。`);
       }
     }
   }
@@ -389,9 +453,8 @@ export class KimiServer {
 
   private buildEnv(): string[] {
     const ctx = this.context as common.UIAbilityContext;
-    const nodeLib = `${NODE_HNP_ROOT}/lib`;
     const path = [
-      `${NODE_HNP_ROOT}/bin`,
+      this.libDir,
       '/data/app/bin',
       '/data/service/hnp/bin',
       '/system/bin',
@@ -402,8 +465,9 @@ export class KimiServer {
       `TMPDIR=${ctx.tempDir}`,
       `XDG_CACHE_HOME=${ctx.cacheDir}`,
       `PATH=${path}`,
-      `LD_LIBRARY_PATH=${nodeLib}`,
-      `LD_PRELOAD=${nodeLib}/libkimicompat.so`,
+      // node 没有 RUNPATH，libc++_shared.so 与它同在解压后的 libs 目录
+      `LD_LIBRARY_PATH=${this.libDir}`,
+      `LD_PRELOAD=${this.libDir}/libkimicompat.so`,
       // libuv 会探测 io_uring_setup，应用沙箱的 seccomp 会拦截
       'UV_USE_IO_URING=0',
       'LANG=zh_CN.UTF-8',

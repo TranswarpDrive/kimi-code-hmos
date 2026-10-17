@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键构建：下载依赖 → 打 HNP → hvigor 构建（InjectHnp 注入 + SignHap 签名）→ 复制到 dist/
+# 一键构建：下载依赖 → 放置 node / 打 HNP → hvigor 构建（InjectHnp 注入 + SignHap 签名）→ 复制到 dist/
 # 用法：scripts/build.sh [debug|release]
 # 没有 signing/*.local.json 时只产出未签名 HAP（可用于检查结构，不能安装）。
 set -euo pipefail
@@ -15,7 +15,7 @@ log() { printf '\033[36m[build]\033[0m %s\n' "$*"; }
 die() { printf '\033[31m[build] %s\033[0m\n' "$*" >&2; exit 1; }
 
 "$ROOT/scripts/fetch-deps.sh"
-"$ROOT/scripts/build-hnp.sh"
+"$ROOT/scripts/stage-runtime.sh"
 
 cd "$ROOT"
 ohpm install >/dev/null
@@ -37,7 +37,7 @@ else
 fi
 
 listing="$(unzip -l "$hap")"
-for entry in hnp/arm64-v8a/node.hnp hnp/arm64-v8a/kimicode.hnp libs/arm64-v8a/libkimihost.so module.json; do
+for entry in libs/arm64-v8a/node libs/arm64-v8a/libkimicompat.so libs/arm64-v8a/libkimihost.so hnp/arm64-v8a/kimicode.hnp module.json; do
   [[ "$listing" == *"$entry"* ]] || die "HAP 缺少 $entry"
 done
 log "产物：$hap（$(du -h "$hap" | cut -f1)）"

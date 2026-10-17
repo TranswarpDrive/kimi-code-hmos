@@ -1,0 +1,10 @@
+{
+  "app": {
+    "bundleName": "com.kimicodehmos.app",
+    "vendor": "kimi-code-hmos",
+    "versionCode": 1000000,
+    "versionName": "0.1.0",
+    "icon": "$media:layered_image",
+    "label": "$string:app_name"
+  }
+}

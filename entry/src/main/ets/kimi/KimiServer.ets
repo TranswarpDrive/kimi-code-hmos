@@ -1,0 +1,505 @@
+import { common } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { fileIo as fs } from '@kit.CoreFileKit';
+import { http } from '@kit.NetworkKit';
+import { process, util } from '@kit.ArkTS';
+import kimihost from 'libkimihost.so';
+import { Log } from './Log';
+import { KIMI_CODE_VERSION, KIMI_HNP_ROOT, NODE_HNP_ROOT, NODE_VERSION } from './RuntimeInfo';
+
+export enum ServerPhase {
+  IDLE = 'idle',
+  STARTING = 'starting',
+  READY = 'ready',
+  STOPPING = 'stopping',
+  FAILED = 'failed'
+}
+
+export class ServerStatus {
+  phase: ServerPhase = ServerPhase.IDLE;
+  /** 就绪后 Web UI 的完整地址（含 #token=） */
+  url: string = '';
+  port: number = 0;
+  pid: number = 0;
+  message: string = '';
+}
+
+export type StatusListener = (status: ServerStatus) => void;
+
+class ExitInfo {
+  code: number = 0;
+  signal: number = 0;
+}
+
+/** 壳自身的持久化设置（filesDir/shell-settings.json） */
+class ShellSettings {
+  /** 设备拒绝 V8 JIT 时自动置为 true */
+  jitless: boolean = false;
+}
+
+// SIGILL、SIGTRAP、SIGABRT、SIGBUS、SIGSEGV：V8 申请可执行内存失败时的典型死法
+const JIT_CRASH_SIGNALS: number[] = [4, 5, 6, 7, 11];
+
+const PREFERRED_PORT: number = 58637; // 避开终端里 `kimi web` 的默认端口 58627
+const PORT_ATTEMPTS: number = 20;
+const READY_TIMEOUT_MS: number = 90000;
+const READY_POLL_MS: number = 400;
+const STOP_GRACE_MS: number = 4000;
+const LOG_ROTATE_BYTES: number = 4 * 1024 * 1024;
+const SIGTERM: number = 15;
+const SIGKILL: number = 9;
+const USER_DOCUMENTS: string = '/storage/Users/currentUser/Documents';
+
+function sleep(ms: number): Promise<void> {
+  return new Promise<void>((resolve: () => void) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function pathExists(path: string): boolean {
+  try {
+    return fs.accessSync(path);
+  } catch (err) {
+    return false;
+  }
+}
+
+function ensureDir(path: string): void {
+  try {
+    if (!pathExists(path)) {
+      fs.mkdirSync(path, true);
+    }
+  } catch (err) {
+    const e = err as BusinessError;
+    Log.error(`mkdir ${path} failed (${e.code}): ${e.message}`);
+  }
+}
+
+function readText(path: string): string {
+  return fs.readTextSync(path).trim();
+}
+
+function writeText(path: string, text: string, append: boolean): void {
+  const mode = fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE | (append ? fs.OpenMode.APPEND : fs.OpenMode.TRUNC);
+  const file = fs.openSync(path, mode);
+  try {
+    fs.writeSync(file.fd, text);
+  } finally {
+    fs.closeSync(file);
+  }
+}
+
+/** GET 请求，返回 HTTP 状态码；连接失败返回 -1 */
+async function httpStatus(url: string, timeoutMs: number): Promise<number> {
+  const request = http.createHttp();
+  try {
+    const response = await request.request(url, {
+      method: http.RequestMethod.GET,
+      connectTimeout: timeoutMs,
+      readTimeout: timeoutMs
+    });
+    return response.responseCode as number;
+  } catch (err) {
+    return -1;
+  } finally {
+    request.destroy();
+  }
+}
+
+/**
+ * 管理内置的 `kimi web` 子进程：选端口、拼环境变量、fork+execve（libkimihost.so）、
+ * 轮询 /api/v1/healthz 就绪、读取 server.token 拼出 Web UI 地址，以及停止/重启。
+ */
+export class KimiServer {
+  private static instance: KimiServer | null = null;
+
+  private context: common.UIAbilityContext | null = null;
+  private status: ServerStatus = new ServerStatus();
+  private listeners: StatusListener[] = [];
+  private startSeq: number = 0;
+
+  homeDir: string = '';
+  logPath: string = '';
+  private pidPath: string = '';
+  private settingsPath: string = '';
+  private jitless: boolean = false;
+  private lastExit: ExitInfo | null = null;
+
+  static get(): KimiServer {
+    if (KimiServer.instance === null) {
+      KimiServer.instance = new KimiServer();
+    }
+    return KimiServer.instance;
+  }
+
+  init(context: common.UIAbilityContext): void {
+    this.context = context;
+    this.homeDir = `${context.filesDir}/home`;
+    const logDir = `${context.filesDir}/logs`;
+    ensureDir(this.homeDir);
+    ensureDir(logDir);
+    ensureDir(`${context.filesDir}/workspace`);
+    this.logPath = `${logDir}/kimi-server.log`;
+    this.pidPath = `${logDir}/kimi-server.pid`;
+    this.settingsPath = `${context.filesDir}/shell-settings.json`;
+    this.loadSettings();
+  }
+
+  getStatus(): ServerStatus {
+    return this.status;
+  }
+
+  subscribe(listener: StatusListener): () => void {
+    this.listeners.push(listener);
+    listener(this.status);
+    return () => {
+      this.listeners = this.listeners.filter((item: StatusListener) => item !== listener);
+    };
+  }
+
+  private update(phase: ServerPhase, message: string): void {
+    const next = new ServerStatus();
+    next.phase = phase;
+    next.message = message;
+    next.port = this.status.port;
+    next.pid = this.status.pid;
+    next.url = phase === ServerPhase.READY ? this.status.url : '';
+    this.status = next;
+    Log.info(`server ${phase}: ${message}`);
+    for (const listener of this.listeners) {
+      listener(next);
+    }
+  }
+
+  get nodePath(): string {
+    return `${NODE_HNP_ROOT}/bin/node`;
+  }
+
+  /** 默认工作目录：有“文档”目录权限时用它，否则用应用沙箱内的 workspace */
+  defaultWorkspace(): string {
+    if (pathExists(USER_DOCUMENTS)) {
+      return USER_DOCUMENTS;
+    }
+    return `${this.context?.filesDir}/workspace`;
+  }
+
+  async start(): Promise<void> {
+    if (this.context === null) {
+      throw new Error('KimiServer.init() not called');
+    }
+    if (this.status.phase === ServerPhase.STARTING || this.status.phase === ServerPhase.READY) {
+      return;
+    }
+    const seq = ++this.startSeq;
+    this.update(ServerPhase.STARTING, '正在检查内置运行时…');
+    try {
+      this.killStaleServer();
+      this.rotateLog();
+      this.assertRuntimeInstalled();
+      try {
+        await this.launch(seq);
+      } catch (err) {
+        if (seq !== this.startSeq || this.jitless || !this.exitLooksLikeJitFailure()) {
+          throw err as Error;
+        }
+        // V8 JIT 需要可执行的匿名内存；若被 W^X 拒绝，node 会在启动阶段崩溃，改用 --jitless 重试并记住
+        Log.warn('node crashed during startup, retrying with --jitless');
+        this.jitless = true;
+        this.saveSettings();
+        await this.launch(seq);
+      }
+    } catch (err) {
+      if (seq !== this.startSeq) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      this.stopProcess();
+      this.update(ServerPhase.FAILED, message);
+    }
+  }
+
+  /** 选端口 → 拉起进程 → 等待就绪；未就绪时抛错，被新的 start/stop 取消时直接返回 */
+  private async launch(seq: number): Promise<void> {
+    const port = await this.pickPort();
+    if (seq !== this.startSeq) {
+      return;
+    }
+    this.status.port = port;
+    const mode = this.jitless ? '，jitless 模式' : '';
+    this.update(ServerPhase.STARTING, `正在启动 Kimi Code 服务（127.0.0.1:${port}${mode}）…`);
+    this.lastExit = null;
+    const pid = this.spawnServer(port, seq);
+    this.status.pid = pid;
+    writeText(this.pidPath, String(pid), false);
+    await this.waitReady(port, pid, seq);
+    if (seq !== this.startSeq) {
+      return;
+    }
+    const token = readText(`${this.homeDir}/.kimi-code/server.token`);
+    this.status.url = `http://127.0.0.1:${port}/#token=${token}`;
+    this.update(ServerPhase.READY, `已就绪（pid ${pid}${mode}）`);
+  }
+
+  private exitLooksLikeJitFailure(): boolean {
+    const exit = this.lastExit;
+    if (exit === null) {
+      return false;
+    }
+    return JIT_CRASH_SIGNALS.indexOf(exit.signal) >= 0 || JIT_CRASH_SIGNALS.indexOf(exit.code - 128) >= 0;
+  }
+
+  private describeLastExit(): string {
+    const exit = this.lastExit;
+    if (exit === null) {
+      return '原因未知';
+    }
+    return exit.signal > 0 ? `被信号 ${exit.signal} 结束` : `退出码 ${exit.code}`;
+  }
+
+  private loadSettings(): void {
+    try {
+      if (pathExists(this.settingsPath)) {
+        const settings = JSON.parse(readText(this.settingsPath)) as ShellSettings;
+        this.jitless = settings.jitless === true;
+      }
+    } catch (err) {
+      Log.warn(`load settings failed: ${String(err)}`);
+    }
+  }
+
+  private saveSettings(): void {
+    try {
+      const settings = new ShellSettings();
+      settings.jitless = this.jitless;
+      writeText(this.settingsPath, JSON.stringify(settings), false);
+    } catch (err) {
+      Log.warn(`save settings failed: ${String(err)}`);
+    }
+  }
+
+  async restart(): Promise<void> {
+    await this.stop();
+    await this.start();
+  }
+
+  async stop(): Promise<void> {
+    if (this.status.pid <= 0) {
+      this.startSeq++;
+      this.update(ServerPhase.IDLE, '已停止');
+      return;
+    }
+    this.startSeq++;
+    this.update(ServerPhase.STOPPING, '正在停止服务…');
+    await this.stopProcessGracefully();
+    this.update(ServerPhase.IDLE, '已停止');
+  }
+
+  /** 同步停止（Ability 销毁时用）：只发 SIGTERM，PDEATHSIG 兜底 */
+  stopNow(): void {
+    this.startSeq++;
+    this.stopProcess();
+  }
+
+  private stopProcess(): void {
+    const pid = this.status.pid;
+    if (pid > 0) {
+      kimihost.kill(pid, SIGTERM);
+    }
+    this.status.pid = 0;
+    this.removePidFile();
+  }
+
+  private async stopProcessGracefully(): Promise<void> {
+    const pid = this.status.pid;
+    if (pid <= 0) {
+      return;
+    }
+    kimihost.kill(pid, SIGTERM);
+    const deadline = Date.now() + STOP_GRACE_MS;
+    while (kimihost.isAlive(pid) && Date.now() < deadline) {
+      await sleep(150);
+    }
+    if (kimihost.isAlive(pid)) {
+      Log.warn(`pid ${pid} did not exit after SIGTERM, sending SIGKILL`);
+      kimihost.kill(pid, SIGKILL);
+    }
+    this.status.pid = 0;
+    this.removePidFile();
+  }
+
+  private removePidFile(): void {
+    try {
+      fs.unlinkSync(this.pidPath);
+    } catch (err) {
+      // 不存在即可
+    }
+  }
+
+  /** 上次异常退出（应用被强杀）可能留下孤儿进程，先清掉 */
+  private killStaleServer(): void {
+    if (!pathExists(this.pidPath)) {
+      return;
+    }
+    try {
+      const stale = Number.parseInt(readText(this.pidPath), 10);
+      if (stale > 0 && stale !== process.pid && kimihost.isAlive(stale)) {
+        Log.warn(`killing stale server pid ${stale}`);
+        kimihost.kill(stale, SIGKILL);
+      }
+    } catch (err) {
+      Log.warn(`read stale pid failed: ${String(err)}`);
+    }
+    this.removePidFile();
+  }
+
+  private rotateLog(): void {
+    try {
+      if (pathExists(this.logPath) && fs.statSync(this.logPath).size > LOG_ROTATE_BYTES) {
+        fs.renameSync(this.logPath, `${this.logPath}.1`);
+      }
+    } catch (err) {
+      Log.warn(`rotate log failed: ${String(err)}`);
+    }
+  }
+
+  private assertRuntimeInstalled(): void {
+    const required: string[] = [
+      this.nodePath,
+      `${KIMI_HNP_ROOT}/package/dist/main.mjs`,
+      `${KIMI_HNP_ROOT}/runtime/ohos-preload.cjs`
+    ];
+    for (const path of required) {
+      if (!pathExists(path)) {
+        throw new Error(`内置运行时缺失：${path}\n请确认 HAP 中包含 HNP 包，并已完整安装。`);
+      }
+    }
+  }
+
+  private async pickPort(): Promise<number> {
+    for (let i = 0; i < PORT_ATTEMPTS; i++) {
+      const port = PREFERRED_PORT + i;
+      const code = await httpStatus(`http://127.0.0.1:${port}/api/v1/healthz`, 600);
+      if (code < 0) {
+        return port;
+      }
+      Log.warn(`port ${port} is in use (HTTP ${code})`);
+    }
+    throw new Error(`端口 ${PREFERRED_PORT}-${PREFERRED_PORT + PORT_ATTEMPTS - 1} 都被占用`);
+  }
+
+  private buildEnv(): string[] {
+    const ctx = this.context as common.UIAbilityContext;
+    const nodeLib = `${NODE_HNP_ROOT}/lib`;
+    const path = [
+      `${NODE_HNP_ROOT}/bin`,
+      '/data/app/bin',
+      '/data/service/hnp/bin',
+      '/system/bin',
+      '/bin'
+    ].join(':');
+    return [
+      `HOME=${this.homeDir}`,
+      `TMPDIR=${ctx.tempDir}`,
+      `XDG_CACHE_HOME=${ctx.cacheDir}`,
+      `PATH=${path}`,
+      `LD_LIBRARY_PATH=${nodeLib}`,
+      `LD_PRELOAD=${nodeLib}/libkimicompat.so`,
+      // libuv 会探测 io_uring_setup，应用沙箱的 seccomp 会拦截
+      'UV_USE_IO_URING=0',
+      'LANG=zh_CN.UTF-8',
+      'TERM=xterm-256color',
+      'NO_COLOR=1',
+      'NODE_ENV=production',
+      'KIMI_HMOS_SHELL=1',
+      'KIMI_HMOS_DEBUG=1'
+    ];
+  }
+
+  private spawnServer(port: number, seq: number): number {
+    const main = `${KIMI_HNP_ROOT}/package/dist/main.mjs`;
+    const args: string[] = [this.nodePath];
+    if (this.jitless) {
+      args.push('--jitless');
+    }
+    args.push(
+      '--require', `${KIMI_HNP_ROOT}/runtime/ohos-preload.cjs`,
+      main,
+      'web',
+      '--no-open',
+      '--port', String(port),
+      '--web-title', 'Kimi Code'
+    );
+    const header = `\n===== ${new Date().toISOString()} start kimi-code ${KIMI_CODE_VERSION} on node ${NODE_VERSION}` +
+      ` port ${port}${this.jitless ? ' (jitless)' : ''}\n`;
+    writeText(this.logPath, header, true);
+    return kimihost.spawn({
+      file: this.nodePath,
+      args: args,
+      env: this.buildEnv(),
+      cwd: this.defaultWorkspace(),
+      logPath: this.logPath,
+      onExit: (pid: number, code: number, signal: number) => {
+        this.onChildExit(pid, code, signal, seq);
+      }
+    });
+  }
+
+  private onChildExit(pid: number, code: number, signal: number, seq: number): void {
+    if (pid !== this.status.pid) {
+      return;
+    }
+    const exit = new ExitInfo();
+    exit.code = code;
+    exit.signal = signal;
+    this.lastExit = exit;
+    this.status.pid = 0;
+    this.removePidFile();
+    // 启动阶段的退出由 waitReady/start 处理（可能触发 --jitless 重试）
+    if (seq !== this.startSeq || this.status.phase !== ServerPhase.READY) {
+      return;
+    }
+    this.update(ServerPhase.FAILED, `Kimi Code 服务意外退出（${this.describeLastExit()}），详见日志。`);
+  }
+
+  private async waitReady(port: number, pid: number, seq: number): Promise<void> {
+    const deadline = Date.now() + READY_TIMEOUT_MS;
+    const healthz = `http://127.0.0.1:${port}/api/v1/healthz`;
+    const tokenPath = `${this.homeDir}/.kimi-code/server.token`;
+    while (Date.now() < deadline) {
+      if (seq !== this.startSeq) {
+        return;
+      }
+      if (this.status.pid !== pid) {
+        throw new Error(`Kimi Code 服务启动失败（${this.describeLastExit()}），详见日志。`);
+      }
+      if ((await httpStatus(healthz, 1500)) === 200 && pathExists(tokenPath)) {
+        return;
+      }
+      await sleep(READY_POLL_MS);
+    }
+    throw new Error(`等待服务就绪超时（${READY_TIMEOUT_MS / 1000}s），详见日志。`);
+  }
+
+  /** 读取日志尾部，用于启动页/错误页展示 */
+  readLogTail(maxBytes: number): string {
+    try {
+      if (!pathExists(this.logPath)) {
+        return '';
+      }
+      const size = fs.statSync(this.logPath).size;
+      const length = Math.min(size, maxBytes);
+      const file = fs.openSync(this.logPath, fs.OpenMode.READ_ONLY);
+      try {
+        const buffer = new ArrayBuffer(length);
+        fs.readSync(file.fd, buffer, { offset: size - length, length: length });
+        const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
+        return decoder.decodeToString(new Uint8Array(buffer), { stream: false });
+      } finally {
+        fs.closeSync(file);
+      }
+    } catch (err) {
+      const e = err as BusinessError;
+      return `读取日志失败：${e.message}`;
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "kimi-code-hmos-runtime-deps",
+  "private": true,
+  "description": "kimi-code npm 包的运行时依赖（与其 package.json dependencies 对齐，锁定精确版本）",
+  "dependencies": {
+    "qrcode": "1.5.4",
+    "ws": "8.22.0"
+  }
+}

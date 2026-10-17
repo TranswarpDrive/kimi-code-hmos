@@ -1,0 +1,28 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Kimi Code Web 的鸿蒙PC 外壳"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Kimi Code"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Kimi Code"
+    },
+    {
+      "name": "reason_documents",
+      "value": "让 Kimi Code 读写你在“文档”中的项目文件"
+    },
+    {
+      "name": "reason_download",
+      "value": "让 Kimi Code 读写“下载”目录中的文件"
+    },
+    {
+      "name": "reason_background",
+      "value": "窗口最小化时保持 Kimi Code 服务运行"
+    }
+  ]
+}

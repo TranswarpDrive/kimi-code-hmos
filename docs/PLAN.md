@@ -24,14 +24,16 @@
 - [x] kimi web 机制：`#token=` 片段、`server.token`、`/api/v1/healthz`、设备码登录
 - [x] 鸿蒙PC：HNP 路径、fork/exec、seccomp、硬链接、HOME、代码签名（见 HARMONYOS-NOTES.md）
 
-### M1 工程骨架与构建链路 🔄
-- [ ] ArkTS 工程（2in1、API 26 编译 / 兼容 5.0.5(17)）
-- [ ] NAPI `libkimihost.so`：spawn / kill / 退出回调
-- [ ] `libkimicompat.so`：SIGSYS → -ENOSYS 兼容层
-- [ ] `ohos-preload.cjs`：`fs.link*` 回退
-- [ ] `scripts/fetch-deps.sh`、`scripts/build-hnp.sh`（hnpcli 打包）
-- [ ] `entry/hvigorfile.ts`：PackageHap 后、SignHap 前注入 `hnp/`
-- [ ] 本机能产出未签名 HAP，结构校验通过（`hnp/arm64-v8a/*.hnp`、`module.json` 含 `hnpPackages`）
+### M1 工程骨架与构建链路 ✅
+- [x] ArkTS 工程（2in1、API 26 编译 / 兼容 5.0.5(17)）
+- [x] NAPI `libkimihost.so`：spawn / kill / 退出回调
+- [x] `libkimicompat.so`：SIGSYS → -ENOSYS 兼容层
+- [x] `ohos-preload.cjs`：`fs.link*` 回退（本机模拟 EACCES 验证：首次独占创建成功、二次抛 EEXIST）
+- [x] `scripts/fetch-deps.sh`（GitHub 下载 + ohos-node.com SHASUMS 交叉校验）、`scripts/build-hnp.sh`
+- [x] `entry/hvigorfile.ts`：`InjectHnp` 任务位于 PackageHap 之后、PackingCheck/SignHap 之前
+- [x] 本机产出未签名 HAP（57MB），含 `hnp/arm64-v8a/*.hnp`，`module.json` 含 `hnpPackages`
+- [x] 本机（macOS Node）冒烟：同样的目录布局与启动参数下 `kimi web` 就绪、`healthz` 200、token 鉴权正常
+- [x] 启动失败时自动 `--jitless` 重试（V8 JIT 被拒的兜底）
 
 ### M2 签名 🔒
 - [ ] 鸿蒙PC 开启开发者模式 + USB/无线调试，`hdc list targets` 可见 🔒

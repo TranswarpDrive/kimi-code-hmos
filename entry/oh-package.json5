@@ -1,0 +1,11 @@
+{
+  "name": "entry",
+  "version": "0.1.0",
+  "description": "Kimi Code 鸿蒙PC 外壳入口模块",
+  "main": "",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "libkimihost.so": "file:./src/main/cpp/types/libkimihost"
+  }
+}

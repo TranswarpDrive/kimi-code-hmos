@@ -1,0 +1,6 @@
+{
+  "name": "libkimihost.so",
+  "types": "./index.d.ts",
+  "version": "0.1.0",
+  "description": "Kimi Code 鸿蒙PC 外壳的进程管理 NAPI 模块"
+}

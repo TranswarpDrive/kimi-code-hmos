@@ -1,0 +1,33 @@
+# hvigor / ohpm
+/node_modules
+/oh_modules
+**/oh_modules
+/local.properties
+/.hvigor
+**/.hvigor
+**/build
+**/.cxx
+**/.test
+/.idea
+/.clangd
+/.clang-format
+/.clang-tidy
+/.appanalyzer
+/.preview
+**/.preview
+
+# 下载的第三方依赖（node 运行时、kimi-code npm 包），由 scripts/fetch-deps.sh 生成
+/vendor/
+
+# 生成的 HNP 包与中间产物，由 scripts/build-hnp.sh 生成
+/entry/hnp/
+/out/
+
+# 最终产物
+/dist/
+
+# 本地签名配置（含本机证书路径与加密口令），由 scripts/setup-signing.sh 生成
+/signing/*.local.json
+
+# macOS
+.DS_Store

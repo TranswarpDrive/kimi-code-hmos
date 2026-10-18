@@ -110,4 +110,23 @@
   [HoKit](https://github.com/yabi-zzh/HoKit)、小白调试助手（auto-installer，已闭源）以自己的华为账号自动申请调试证书 + Profile 后重签安装。
 - 小白调试助手 GitHub issue #63“带 HNP 的 HAP 无法正常安装”仍为 Open（本机的新版程序里已有 HnpPackage/hnpcli 与 AclPage 相关代码）；
   HoKit README 提到多包签名顺序会影响 ACL，说明它按包内声明自动申请受限权限。为降低风险，本项目不再使用 HNP。
-- `resources/resfile` 安装时解压到 `context.resourceDir`（API 11+）；打包工具对 resources 一律 Stored，重写为 deflate 后需真机确认可正常解压。
+- `resources/resfile` 安装时解压到 `context.resourceDir`（API 11+，实测为 `/data/storage/el1/bundle/entry/resources/resfile`）；
+  打包工具对 resources 一律 Stored，重写为 deflate 后在模拟器上确认能正常解压，API 26 真机待复测。
+
+## 2in1 模拟器（2026-10 实测）
+
+- 模拟器镜像最高只有 HarmonyOS 6.1.1(24)（`devecocli emulator image list`），没有 API 26。为此 `build-profile.json5`
+  另有一个只用于自测的 `emulator` 产品（`compatibleSdkVersion` 6.1.1(24)；`executableBinaryPaths` 需要 API 24+），
+  `scripts/emulator.sh` 构建它并装到模拟器。对外分发的仍是 `default` 产品。
+- 创建/启动：`devecocli emulator create --device-type 2in1 --os-version="HarmonyOS 6.1.1(24)" KimiPC_API24`、
+  `devecocli emulator start KimiPC_API24`（都需要 `DEVECO_CLI_CLT_PATH`）。在 hdc 里显示为 `127.0.0.1:5555`，
+  `param get bootevent.boot.completed` 为 true 即开机完成。
+- 模拟器不校验调试 Profile 的设备列表：用真机生成的调试签名可以直接安装（模拟器 UDID 没注册也行）。
+  不要为了模拟器再跑 `devecocli signature generate`，它会重新生成证书，真机上已装的应用就得卸载重装（丢登录状态）。
+- 能验证的：安装（resfile 解压、`executableBinaryPaths`）、壳的 ArkTS 逻辑、服务启动、node 联网（登录的设备码请求）、
+  外链唤起系统浏览器、关窗口后 node 退出、release 构建模式。
+- **不能验证 JIT 相关的限制**：把 node 的 `.permission` 节删掉后，在模拟器上照样能 JIT 运行（真机上同样配置会 SIGTRAP）。
+  JIT、ACL、`.permission` 继承、重签工具是否带上 ACL，都只能在真机上确认。
+- 输入与截图：`hdc -t 127.0.0.1:5555 shell "uitest uiInput click <x> <y>"`（物理像素，屏幕 3120×2080），
+  `snapshot_display -f /data/local/tmp/x.jpeg` + `hdc file recv`。node 的进程名是 `kimi-code`（`ps -A` 可见），
+  `/proc/<pid>/maps` 无权读取。

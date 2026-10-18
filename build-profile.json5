@@ -15,6 +15,21 @@
             "useNormalizedOHMUrl": true
           }
         }
+      },
+      {
+        // 仅供本机 2in1 模拟器自测（scripts/emulator.sh）：模拟器镜像目前最高 HarmonyOS 6.1.1(24)，
+        // 而 executableBinaryPaths 需要 API 24+。对外分发的仍是只支持 API 26 的 default 产品。
+        "name": "emulator",
+        "signingConfig": "default",
+        "targetSdkVersion": "26.0.0",
+        "compatibleSdkVersion": "6.1.1(24)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
       }
     ],
     "buildModeSet": [
@@ -34,7 +49,8 @@
         {
           "name": "default",
           "applyToProducts": [
-            "default"
+            "default",
+            "emulator"
           ]
         }
       ]

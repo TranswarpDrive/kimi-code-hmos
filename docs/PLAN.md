@@ -60,11 +60,12 @@
 ### M6 升级与分发 🔄
 - [x] `compatibleSdkVersion` 定为 26.0.0（只支持 API 26 的 2in1）
 - [x] 去掉 HNP，kimi 包改走 resfile（resfile 条目 deflate 重写，HAP 保持 56MB）；`build.sh` 总是产出未签名包 + sha256
-- [ ] 真机验证 resfile 版本（🔒 需重新连接设备）与 release 构建模式
+- [x] 2in1 模拟器（HarmonyOS 6.1.1(24)）验证 resfile 版本：安装解压、服务启动、联网（登录设备码请求）、外链、关窗口回收、release 模式
+- [x] `emulator` 产品 + `scripts/emulator.sh`：真机不在手边时自测（模拟器不限制 JIT，JIT/ACL 仍需真机）
+- [ ] API 26 真机复测 resfile 版本（🔒 需重新连接设备）
 - [ ] 用 HoKit / 小白调试助手实测“未签名包 → 重签 → 安装 → JIT 正常”（确认 ACL 被带上）
 - [ ] 升级 kimi-code：改 `scripts/versions.env` → 重新打包 → 回归
-- [ ] （可选）jitless 兜底：用 `node:https` 实现 fetch，避免无 JIT 时完全不能联网
-- [ ] （可选）jitless 兜底的 fetch：万一重签工具没带上 JIT 的 ACL，应用仍能联网（性能较差）
+- [ ] （可选）jitless 兜底：用 `node:https` 实现 fetch，万一重签工具没带上 JIT 的 ACL，应用仍能联网（性能较差）
 
 ## 风险与预案
 
@@ -74,3 +75,4 @@
 | 其他 kimi 功能在沙箱里触发 SIGSYS | 打开调试日志（失败页按钮），看兼容层记录的 syscall 与预加载脚本的调用追踪 |
 | 调试 Profile 一年过期（当前到 2027-10-18） | 重新运行 `scripts/setup-signing.sh default --force` |
 | 换证书后覆盖安装失败 | `hdc uninstall com.kimicodehmos.app` 后再装（会清空登录状态） |
+| 模拟器结果过于乐观（不限制 JIT） | JIT/ACL/`.permission`/重签相关改动一律以真机为准 |

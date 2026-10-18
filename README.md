@@ -61,6 +61,15 @@ scripts/install.sh
 
 未连接设备时 `scripts/build.sh` 也能运行，只是只产出未签名 HAP（用于检查包结构）。
 
+真机不在手边时可以用本机的 2in1 模拟器自测（模拟器镜像最高 API 24，所以构建的是单独的 `emulator` 产品；
+模拟器不限制 JIT，JIT 与权限相关的问题仍要真机确认）：
+
+```bash
+export DEVECO_CLI_CLT_PATH=$HOME/DevTools/command-line-tools-26/command-line-tools          # devecocli 需要
+devecocli emulator create --device-type 2in1 --os-version="HarmonyOS 6.1.1(24)" KimiPC_API24   # 首次
+scripts/emulator.sh   # 构建 → 启动模拟器（如未运行）→ 安装 → 启动应用
+```
+
 ## 工作原理
 
 ```

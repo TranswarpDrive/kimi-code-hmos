@@ -39,10 +39,11 @@ EntryAbility (ArkTS)
 | `entry/src/main/cpp/` | NAPI `libkimihost.so`、LD_PRELOAD 兼容层 `compat/ohos_compat.c` → `libkimicompat.so` |
 | `entry/hvigorfile.ts` | `InjectRuntime` 任务：PackageHap 后注入 `libs/arm64-v8a/node`，并把 resfile 条目改为 deflate |
 | `hvigorfile.ts` | 构建时注入本机签名配置 `signing/*.local.json` |
+| `build-profile.json5` | 产品 `default`（分发，只支持 API 26）与 `emulator`（模拟器自测，兼容 API 24） |
 | `runtime/ohos-preload.cjs` | node 预加载补丁（link 回退、worker 继承预加载、禁用搜索 worker、调试追踪） |
 | `runtime/bin-permission.json` | 写进 node `.permission` 节的权限声明 |
 | `runtime/kimi-deps/` | kimi 运行时依赖（ws、qrcode）的锁定清单 |
-| `scripts/` | `fetch-deps.sh` / `stage-runtime.sh` / `setup-signing.sh` / `build.sh` / `install.sh` |
+| `scripts/` | `fetch-deps.sh` / `stage-runtime.sh` / `setup-signing.sh` / `build.sh` / `install.sh` / `emulator.sh` |
 | `scripts/versions.env` | 锁定的 Node、kimi-code 版本与校验值 |
 | `vendor/`、`entry/libs/`、`entry/src/main/resources/resfile/kimicode/`、`dist/` | 生成物，均不入库 |
 
@@ -52,17 +53,20 @@ EntryAbility (ArkTS)
 export DEVECO_CLI_CLT_PATH=$HOME/DevTools/command-line-tools-26/command-line-tools   # devecocli 需要
 scripts/setup-signing.sh [default --force]   # devecocli 登录 + 生成调试证书/Profile（需连设备）；改了 ACL 权限要 --force
 scripts/build.sh [release]                   # 下载校验依赖 → stage-runtime → hvigor 构建；dist/ 下有未签名（分发）与已签名（自用）HAP
-scripts/install.sh                           # hdc install -r 并启动（换证书后需先 hdc uninstall com.kimicodehmos.app）
+scripts/install.sh                           # hdc install -r 并启动（换证书后需先 hdc uninstall com.kimicodehmos.app）；跳过模拟器
+scripts/emulator.sh [release]                # 真机不在时：构建 emulator 产品 → 装到 2in1 模拟器（127.0.0.1:5555）→ 启动
 hdc shell "hilog -T KimiShell"               # 壳日志 + 转发的 node 输出（[node] 前缀，token 已打码）
 ```
 
 - 设备：USB-C 连接并开“USB 调试”最稳；无线调试要求两端二层互通。
+- 模拟器（`KimiPC_API24`，HarmonyOS 6.1.1(24)）：直接用真机的调试签名安装，别为它重新生成证书。它**不限制 JIT**
+  （node 去掉 `.permission` 也能 JIT），所以 JIT/ACL/重签相关的改动必须真机验证；其余（安装、服务、联网、外链、生命周期）可在模拟器上测。
 - 调试：服务失败页可“开启调试日志并重启”（写 `files/debug.flag`）：kimi `--log-level debug`、兼容层打印被拦截的 syscall、预加载脚本追踪 fs/os/crypto/net/child_process 调用。很吵，排障完关掉。
 - `hdc shell -b <bundle>` 在这台机器上进不了应用沙箱；沙箱日志靠 hilog 转发，崩溃栈靠 `Diagnostics.ets` 查询 FaultLogger。
 
 ## 平台约束（改代码前必读）
 
-- 只面向 `2in1`、API 26（`compatibleSdkVersion` 26.0.0）。手机/平板不允许应用 fork/exec 自带二进制；
+- 只面向 `2in1`、API 26（`default` 产品的 `compatibleSdkVersion` 26.0.0；`emulator` 产品为 6.1.1(24)，只用于自测）。手机/平板不允许应用 fork/exec 自带二进制；
   `executableBinaryPaths`（API 24+）、`INHERIT_PARENT_PERMISSION`（API 23+）在低版本系统不可用。
 - **随包 bin 的权限写在它自己的 ELF `.permission` 节**（官方“应用程序包集成bin文件（PC/2in1）”）。
   node 声明 `INHERIT_PARENT_PERMISSION`，应用也必须声明它；没有它时 exec 出来的 node 拿不到应用的 JIT 与联网权限

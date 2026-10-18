@@ -63,6 +63,8 @@ cp "$ROOT/runtime/ohos-preload.cjs" "$KIMI_OUT/runtime/ohos-preload.cjs"
 cp "$NODE_SRC/LICENSE" "$KIMI_OUT/licenses/node.LICENSE"
 # hvigor 打包资源时会跳过点文件；这里先删掉，保证磁盘上的内容与 HAP 一致
 find "$KIMI_OUT" -name '.*' -prune -exec rm -rf {} +
+# 类型声明运行时用不到，而且 hvigor 会把它们当作“意外打包的源码文件”逐个告警
+find "$KIMI_OUT" -type f \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' \) -delete
 find "$KIMI_OUT" -type d -exec chmod 0755 {} +
 find "$KIMI_OUT" -type f -exec chmod 0644 {} +
 log "kimi-code $KIMI_CODE_VERSION → resources/resfile/kimicode  $(du -sh "$KIMI_OUT" | cut -f1)（$(find "$KIMI_OUT" -type f | wc -l | tr -d ' ') 个文件）"

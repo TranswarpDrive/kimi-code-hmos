@@ -4,6 +4,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { process, util } from '@kit.ArkTS';
 import kimihost from 'libkimihost.so';
+import { logRecentCrashes } from './Diagnostics';
 import { Log } from './Log';
 import { KIMI_CODE_VERSION, KIMI_HNP_ROOT, NODE_VERSION } from './RuntimeInfo';
 
@@ -125,6 +126,9 @@ export class KimiServer {
   /** 本次启动是否已降级为 --jitless；每次 start() 都先尝试 JIT */
   private jitless: boolean = false;
   private lastExit: ExitInfo | null = null;
+  /** 应用数据目录下存在 debug.flag 时，打开 kimi debug 日志与预加载脚本的调用追踪（很吵，仅排障用） */
+  private debug: boolean = false;
+  private debugFlagPath: string = '';
   private forwardOffset: number = 0;
   private forwardTimer: number = -1;
   /** 解压后的原生库目录：node（executableBinaryPaths）、libc++_shared.so、libkimicompat.so */
@@ -146,6 +150,7 @@ export class KimiServer {
     ensureDir(`${context.filesDir}/workspace`);
     this.logPath = `${logDir}/kimi-server.log`;
     this.pidPath = `${logDir}/kimi-server.pid`;
+    this.debugFlagPath = `${context.filesDir}/debug.flag`;
     this.libDir = kimihost.nativeLibDir();
     Log.info(`native lib dir: ${this.libDir}`);
     this.startLogForwarding();
@@ -153,6 +158,23 @@ export class KimiServer {
 
   getStatus(): ServerStatus {
     return this.status;
+  }
+
+  isDebugEnabled(): boolean {
+    return pathExists(this.debugFlagPath);
+  }
+
+  /** 开关调试日志（files/debug.flag），下次启动服务时生效 */
+  setDebugEnabled(enabled: boolean): void {
+    try {
+      if (enabled) {
+        writeText(this.debugFlagPath, '1', false);
+      } else if (pathExists(this.debugFlagPath)) {
+        fs.unlinkSync(this.debugFlagPath);
+      }
+    } catch (err) {
+      Log.warn(`toggle debug failed: ${String(err)}`);
+    }
   }
 
   subscribe(listener: StatusListener): () => void {
@@ -204,7 +226,8 @@ export class KimiServer {
       this.killStaleServer();
       this.rotateLog();
       this.assertRuntimeInstalled();
-      this.runJitDiagnostics();
+      this.logJitProbe();
+      this.debug = pathExists(this.debugFlagPath);
       try {
         await this.launch(seq);
       } catch (err) {
@@ -224,6 +247,11 @@ export class KimiServer {
       const message = err instanceof Error ? err.message : String(err);
       this.stopProcess();
       this.update(ServerPhase.FAILED, message);
+      // 崩溃记录由 faultloggerd 异步生成，稍等再查
+      const since = Date.now() - 60000;
+      setTimeout(() => {
+        logRecentCrashes(since);
+      }, 5000);
     }
   }
 
@@ -249,22 +277,12 @@ export class KimiServer {
     this.update(ServerPhase.READY, `已就绪（pid ${pid}${mode}）`);
   }
 
-  /** 诊断：应用主进程与被拉起的子进程（jitprobe）能否申请可执行内存，结果写入日志（并转发到 hilog） */
-  private runJitDiagnostics(): void {
+  /** 诊断：应用进程能否申请可执行内存（node 经 INHERIT_PARENT_PERMISSION 继承同样的权限） */
+  private logJitProbe(): void {
     try {
       Log.info(`jit probe (app process): ${kimihost.probeJit()}`);
-      const probe = `${this.libDir}/jitprobe`;
-      if (pathExists(probe)) {
-        kimihost.spawn({
-          file: probe,
-          args: [probe],
-          env: this.buildEnv(),
-          cwd: this.homeDir,
-          logPath: this.logPath
-        });
-      }
     } catch (err) {
-      Log.warn(`jit diagnostics failed: ${String(err)}`);
+      Log.warn(`jit probe failed: ${String(err)}`);
     }
   }
 
@@ -475,7 +493,10 @@ export class KimiServer {
       'NO_COLOR=1',
       'NODE_ENV=production',
       'KIMI_HMOS_SHELL=1',
-      'KIMI_HMOS_DEBUG=1'
+      `KIMI_HMOS_DEBUG=${this.debug ? '1' : '0'}`,
+      // 在 kimi 主进程里创建会话搜索 worker 会让进程被 SIGSYS 结束（原因待查，见 docs/HARMONYOS-NOTES.md），
+      // 预加载脚本据此拒绝创建该 worker；kimi 会退避重试，只影响会话全文搜索
+      'KIMI_HMOS_NO_SEARCH_WORKER=1'
     ];
   }
 
@@ -493,6 +514,9 @@ export class KimiServer {
       '--port', String(port),
       '--web-title', 'Kimi Code'
     );
+    if (this.debug) {
+      args.push('--log-level', 'debug');
+    }
     const header = `\n===== ${new Date().toISOString()} start kimi-code ${KIMI_CODE_VERSION} on node ${NODE_VERSION}` +
       ` port ${port}${this.jitless ? ' (jitless)' : ''}\n`;
     writeText(this.logPath, header, true);

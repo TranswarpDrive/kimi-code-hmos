@@ -1,7 +1,8 @@
 # CLAUDE.md — Kimi Code 鸿蒙PC 外壳（kimi-code-hmos）
 
 非官方的个人侧载项目：把官方 Kimi Code Web（由 Kimi Code CLI 的 `kimi web` 提供）包成一个鸿蒙PC（2in1）HAP。
-不用 Electron，用 ArkTS + ArkWeb 做壳；Node 运行时和 kimi-code npm 包以私有 HNP 内置进 HAP。
+不用 Electron，用 ArkTS + ArkWeb 做壳；Node 运行时作为随包 bin、kimi-code npm 包作为私有 HNP 内置进 HAP。
+已在 MOR-M1（HarmonyOS 7.0.0，API 26）真机跑通：JIT、登录（系统浏览器授权）、对话、Shell 工具。
 
 计划与进度见 [docs/PLAN.md](docs/PLAN.md)，平台踩坑与资料来源见 [docs/HARMONYOS-NOTES.md](docs/HARMONYOS-NOTES.md)。
 
@@ -9,65 +10,73 @@
 
 ```
 EntryAbility (ArkTS)
- ├─ KimiServer.ets ── libkimihost.so (NAPI: fork+execve / kill / waitpid 线程)
- │      └─ 子进程: /data/app/node.org/node_<ver>/bin/node
- │                  --require <kimi HNP>/runtime/ohos-preload.cjs
- │                  <kimi HNP>/package/dist/main.mjs web --no-open --port <p>
- │         env: HOME=<filesDir>/home  UV_USE_IO_URING=0  LD_PRELOAD=libkimicompat.so ...
+ ├─ KimiServer.ets ── libkimihost.so (NAPI: fork+execve / kill / waitpid 线程 / nativeLibDir / probeJit)
+ │      └─ 子进程: <libs>/node  --require <kimi HNP>/runtime/ohos-preload.cjs
+ │                  <kimi HNP>/package/dist/main.mjs web --no-open --port <p> --web-title "Kimi Code"
+ │         <libs> = /data/storage/el1/bundle/libs/arm64（compressNativeLibs=true 解压出的真实目录）
+ │         node 的 ELF .permission 节声明 INHERIT_PARENT_PERMISSION → 继承应用的 JIT、联网权限
+ │         env: HOME=<filesDir>/home  LD_LIBRARY_PATH=<libs>  LD_PRELOAD=<libs>/libkimicompat.so
+ │              UV_USE_IO_URING=0  KIMI_HMOS_NO_SEARCH_WORKER=1  KIMI_HMOS_DEBUG=0|1 ...
  └─ pages/Index.ets ── ArkWeb 加载 http://127.0.0.1:<p>/#token=<server.token>
-        ├─ document-start 注入脚本接管 window.open → JS 代理 kimiHost.openExternal
-        ├─ onWindowNew / onLoadIntercept 兜底外链
+        ├─ document-start 注入脚本接管 window.open 与外链点击 → JS 代理 kimiHost.openExternal
+        ├─ onLoadIntercept 兜底主框架外链
         └─ 外链(含 OAuth 设备码授权页) → UIAbilityContext.openLink → 系统默认浏览器
 ```
 
-- HNP 安装后在应用沙箱内的路径：`/data/app/<name>.org/<name>_<version>/`（`HNP_PRIVATE_HOME=/data/app`）。
+- kimi HNP 安装后在沙箱内：`/data/app/kimicode.org/kimicode_<ver>/`（`HNP_PRIVATE_HOME=/data/app`）。
 - kimi 登录是 OAuth 设备码流程：服务端轮询 token，浏览器授权后无需回跳应用。
-- `server.token` 由 kimi 首次启动生成在 `$HOME/.kimi-code/server.token`（必须 0600），壳读取它拼 URL。
-- 就绪探测：`GET /api/v1/healthz`（免鉴权）。
+- `server.token` 由 kimi 首次启动生成在 `$HOME/.kimi-code/server.token`（0600），壳读取它拼 URL。
+- 就绪探测：`GET /api/v1/healthz`（免鉴权）。node 启动即崩（SIGTRAP 等）时自动 `--jitless` 重试并在页面顶部提示。
 
 ## 目录
 
 | 路径 | 说明 |
 |---|---|
 | `AppScope/` | 应用级配置（bundleName `com.kimicodehmos.app`） |
-| `entry/src/main/ets/` | ArkTS：`entryability/`、`pages/`、`kimi/`（服务管理、外链、日志） |
-| `entry/src/main/cpp/` | NAPI 模块 `libkimihost.so` + LD_PRELOAD 兼容层 `libkimicompat.so` |
-| `entry/hvigorfile.ts` | 自定义任务：在 `SignHap` 前把 `entry/hnp/` 注入未签名 HAP |
-| `runtime/` | 打进 kimi HNP 的 JS 补丁（`ohos-preload.cjs`） |
-| `scripts/` | `fetch-deps.sh` / `build-hnp.sh` / `setup-signing.sh` / `build.sh` / `install.sh` |
-| `scripts/versions.env` | 锁定的 Node、kimi-code 版本与 sha256 |
-| `vendor/`、`entry/hnp/`、`out/`、`dist/` | 生成物，均不入库 |
-| `signing/*.local.json` | 本机签名配置，不入库；由根 `hvigorfile.ts` 在构建时注入 |
+| `entry/src/main/ets/kimi/` | 服务管理、外链、Web 桥、权限、长时任务、崩溃日志诊断 |
+| `entry/src/main/cpp/` | NAPI `libkimihost.so`、LD_PRELOAD 兼容层 `compat/ohos_compat.c` → `libkimicompat.so` |
+| `entry/hvigorfile.ts` | `InjectRuntime` 任务：PackageHap 后把 `libs/arm64-v8a/node` 与 `hnp/` 注入未签名 HAP |
+| `hvigorfile.ts` | 构建时注入本机签名配置 `signing/*.local.json` |
+| `runtime/ohos-preload.cjs` | node 预加载补丁（link 回退、worker 继承预加载、禁用搜索 worker、调试追踪） |
+| `runtime/bin-permission.json` | 写进 node `.permission` 节的权限声明 |
+| `runtime/kimi-deps/` | kimi 运行时依赖（ws、qrcode）的锁定清单 |
+| `scripts/` | `fetch-deps.sh` / `stage-runtime.sh` / `setup-signing.sh` / `build.sh` / `install.sh` |
+| `scripts/versions.env` | 锁定的 Node、kimi-code 版本与校验值 |
+| `vendor/`、`entry/libs/`、`entry/hnp/`、`out/`、`dist/` | 生成物，均不入库 |
 
 ## 常用命令
 
 ```bash
 export DEVECO_CLI_CLT_PATH=$HOME/DevTools/command-line-tools-26/command-line-tools   # devecocli 需要
-scripts/fetch-deps.sh          # 下载并校验 node(ohos) 与 kimi-code npm 包到 vendor/
-scripts/build-hnp.sh           # 生成 entry/hnp/arm64-v8a/{node,kimi}.hnp
-scripts/setup-signing.sh       # 首次：devecocli auth login + signature generate（需登录、需连设备）
-scripts/build.sh               # 全流程，产物在 dist/
-scripts/install.sh             # hdc 安装并启动
-hdc shell hilog -x | grep -i KimiShell   # 看壳日志（domain 0x4B49 / tag KimiShell）
+scripts/setup-signing.sh [default --force]   # devecocli 登录 + 生成调试证书/Profile（需连设备）；改了 ACL 权限要 --force
+scripts/build.sh                             # 下载校验依赖 → stage-runtime → hvigor 构建签名，产物在 dist/
+scripts/install.sh                           # hdc install -r 并启动（换证书后需先 hdc uninstall com.kimicodehmos.app）
+hdc shell "hilog -T KimiShell"               # 壳日志 + 转发的 node 输出（[node] 前缀，token 已打码）
 ```
 
-工具位置：CLT 在 `~/DevTools/command-line-tools-26/command-line-tools`（hvigorw/ohpm/hdc 已在 PATH），
-签名工具 `sdk/default/openharmony/toolchains/lib/hap-sign-tool.jar`，`hnpcli` 在 `.../toolchains/`。
+- 设备：USB-C 连接并开“USB 调试”最稳；无线调试要求两端二层互通。
+- 调试：服务失败页可“开启调试日志并重启”（写 `files/debug.flag`）：kimi `--log-level debug`、兼容层打印被拦截的 syscall、预加载脚本追踪 fs/os/crypto/net/child_process 调用。很吵，排障完关掉。
+- `hdc shell -b <bundle>` 在这台机器上进不了应用沙箱；沙箱日志靠 hilog 转发，崩溃栈靠 `Diagnostics.ets` 查询 FaultLogger。
 
 ## 平台约束（改代码前必读）
 
-- 只面向 `2in1`（鸿蒙PC）。手机/平板不允许应用 fork/exec 自带二进制。
-- 包内 ELF 必须有代码签名：HNP 里的 ELF 由 hap-sign-tool 在 `sign-app` 时统一签（`signNativeHnps`），不要另行改动已签名 HAP。
-- 应用沙箱 seccomp 会拦截部分 syscall（如 `io_uring_setup`、`close_range`）：子进程必须带 `UV_USE_IO_URING=0`，并预加载 `libkimicompat.so`（SIGSYS → `-ENOSYS`）。
-- 沙箱内硬链接 `link(2)` 可能 EACCES；`ohos-preload.cjs` 把 `fs.link*` 退化为 `open(dst,'wx')` 独占拷贝（保留 EEXIST 语义）。
-- `os.homedir()` 默认指向不可读的 `/storage/Users/currentUser`，所以子进程必须显式设置 `HOME`。
-- `process.platform === 'openharmony'`，不要伪装成 linux（会导致 kimi 去下载 glibc 版 ripgrep 等不可执行的二进制）。
-- 受限（ACL）权限只能申请调试 Profile 里允许的；申请了 Profile 里没有的 system_grant 受限权限会导致安装失败。
+- 只面向 `2in1`。手机/平板不允许应用 fork/exec 自带二进制。
+- **随包 bin 的权限写在它自己的 ELF `.permission` 节**（官方“应用程序包集成bin文件（PC/2in1）”）。
+  node 声明 `INHERIT_PARENT_PERMISSION`，应用也必须声明它；没有它时 exec 出来的 node 拿不到应用的 JIT 与联网权限
+  （放在 HNP 里、或只在 executableBinaryPaths 声明都不行，实测 mmap(RWX) 返回 EINVAL）。
+- JIT 需要受限权限 `kernel.ALLOW_WRITABLE_CODE_MEMORY`（调试 Profile 由 devecocli 自动带 ACL）；`kernel.EXEMPT_ANONYMOUS_EXECUTABLE_MEMORY` 实测不能替代。
+- node 不能被 strip（会删掉 `.permission` 节）；hvigor 只收 libs 下 `.so`，所以 node 由 `InjectRuntime` 原样注入。
+- 应用 seccomp 对白名单外 syscall 用 TRAP；libuv 无视 `UV_USE_IO_URING=0` 仍会探测 `io_uring_setup`(425)，靠 `libkimicompat.so` 的 SIGSYS→-ENOSYS 兜住。兼容层同时禁止任何线程屏蔽 SIGSYS（屏蔽时被 TRAP 会被强制杀进程）。
+- kimi 登录后在主进程创建会话搜索 worker 会让 node 被 SIGSYS 杀掉（根因未明），`KIMI_HMOS_NO_SEARCH_WORKER=1` 让预加载脚本拒绝创建它。
+- kimi 创建 worker 时显式传 `execArgv: []`，预加载脚本会把自己补进去，否则 worker 里没有补丁。
+- `os.homedir()` 默认指向不可读的 `/storage/Users/currentUser`，子进程必须设置 `HOME`；`os.cpus()` 在沙箱里返回空数组。
+- `process.platform === 'openharmony'`，不要伪装成 linux（kimi 会去下载 glibc 版 ripgrep 等不可执行文件）。
+- 受限（ACL）权限只能申请调试 Profile 里有的；改了受限权限要 `setup-signing.sh default --force` 重新生成 Profile。
 - fork 后到 execve 前只能调用 async-signal-safe 函数；argv/envp 在 fork 前准备好。
 
 ## 约定
 
-- 文档、注释用中文；标识符用英文。ArkTS 遵循 ArkTS 严格模式（无 any、无解构、对象字面量需有类型）。
-- 版本号：`AppScope/app.json5` 的 `versionName` = `<壳版本>`，内置 kimi-code 版本记在 `scripts/versions.env`。
+- 文档、注释用中文；标识符用英文。ArkTS 遵循严格模式（无 any、无解构、对象字面量需有类型）。
+- 版本：`AppScope/app.json5` 的 `versionName` 是壳版本；内置 kimi-code / node 版本记在 `scripts/versions.env`。
 - Git：`main` 分支，小步提交，提交信息用中文说明“做了什么/为什么”；生成物和本机签名不入库。
-- 升级 kimi-code：改 `scripts/versions.env` 的版本与 sha256 → `scripts/build.sh` → 真机回归（登录、对话、工具调用）。
+- 升级 kimi-code：改 `scripts/versions.env` 的版本与 integrity → `scripts/build.sh` → 真机回归（登录、对话、Shell 工具、重启后稳定性）。

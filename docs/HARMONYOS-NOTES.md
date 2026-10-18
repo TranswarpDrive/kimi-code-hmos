@@ -1,6 +1,6 @@
 # 鸿蒙PC 平台笔记
 
-开发本项目时查证过的事实与出处。标注“未实测”的条目需在真机上确认后更新。
+开发本项目时查证过的事实与出处。“真机实测”一节来自 MOR-M1（HarmonyOS 7.0.0.111，API 26，HongMeng Kernel 1.13.0）。
 
 ## Kimi Code CLI / Web
 
@@ -31,7 +31,7 @@
 - hvigor（6.26，CLT 内）不处理 hnp；`app_packing_tool.jar` 支持 `--hnp-path` 但 hvigor 不传。
   做法（参考 [Termony](https://github.com/TermonyHQ/Termony)）：构建后把 `hnp/` 加进未签名 HAP，再签名。
 - `hap-sign-tool.jar sign-app`（`signCode` 默认 1）会解开 HAP 中的 `.hnp`，对其中每个 ELF 做 fs-verity 代码签名（`signNativeHnps`）。
-- `module.json` schema 里还有 `executableBinaryPaths`（API 24+，“binary paths with kernel permission”），暂不使用。
+- `module.json` schema 里的 `executableBinaryPaths`（API 24+）见下文“随包 bin 的权限”。
 
 ## 进程与沙箱（2in1）
 
@@ -53,6 +53,51 @@
   需要已连接的真机用于注册设备。环境变量 `DEVECO_CLI_CLT_PATH` 指向 CLT。
 - 上架分发自带 ELF 需要 AGC “二进制证书”（certType 4），个人开发者拿不到；本项目只做调试签名侧载。
 - 受限权限判定：`provisionEnable == true` 且 `availableLevel ∈ {system_basic, system_core}` 才需 ACL。
-  本项目只申请 normal 级权限：`INTERNET`、`GET_NETWORK_INFO`、`KEEP_BACKGROUND_RUNNING`、
-  `READ_WRITE_DOCUMENTS_DIRECTORY`、`READ_WRITE_DOWNLOAD_DIRECTORY`、`FILE_ACCESS_PERSIST`。
-- 本机 `~/.ohos/config/` 里已有其他项目的自动签名材料（同一账号下注册了 3 台设备）。
+  本项目唯一的受限权限是 `kernel.ALLOW_WRITABLE_CODE_MEMORY`（JIT）；其余为 normal：`INHERIT_PARENT_PERMISSION`、
+  `INTERNET`、`GET_NETWORK_INFO`、`KEEP_BACKGROUND_RUNNING`、`READ_WRITE_DOCUMENTS_DIRECTORY`、
+  `READ_WRITE_DOWNLOAD_DIRECTORY`、`FILE_ACCESS_PERSIST`（devecocli 会把后三个也列进 Profile 的 ACL）。
+- `signature generate` 按 module.json5 里申请的受限权限生成调试 Profile 的 `allowed-acls`；新增受限权限后要 `--force`
+  重新生成（证书也会换新，已安装的旧签名应用需先卸载）。调试 Profile 有效期一年。
+- 本机 `~/.ohos/config/` 里还有其他项目的自动签名材料；本项目的材料名为 `default_kimi-code-hmos_*`。
+
+## 随包 bin 的权限（官方文档 + 真机实测）
+
+官方文档：[应用程序包集成bin文件（PC/2in1）](https://developer.huawei.com/consumer/cn/doc/doccenter-getting-started/hap-bin)
+
+- bin 放在模块 `libs/<abi>/`，在 `module.json5` 的 `executableBinaryPaths` 里声明（相对路径，必须以 `libs/<abi>/` 开头），
+  应用需是解压模式（`compressNativeLibs: true`）。hvigor 默认只打包 libs 下的 `.so`，官方做法是
+  `buildOptionSet[].nativeLib.collectAllLibs: true` 且 debug 包 `debugSymbol.strip: false`；本项目改为构建后直接注入。
+- **bin 的权限写在 ELF 的 `.permission` 节**：`{"requestPermissions":[{"name":"..."}]}`，用
+  `llvm-objcopy --add-section .permission=<json> in out` 添加（strip 会删掉该节）。声明的权限不能超出应用声明的权限，
+  否则安装失败。声明 `ohos.permission.INHERIT_PARENT_PERMISSION`（2in1、normal、无需 ACL）即可继承父进程全部
+  system_grant 权限；该权限本身不会再传给孙进程。
+- 实测：
+  - 应用有 `kernel.ALLOW_WRITABLE_CODE_MEMORY` 时，应用进程 `mmap(RWX)`、`mprotect(RW→RX)` 成功；
+  - HNP 里的 node、或只在 `executableBinaryPaths` 声明的 bin，exec 后两者都返回 **EINVAL** → V8 `Check failed: 12 == errno` → SIGTRAP；
+  - 给 bin 加上声明 `INHERIT_PARENT_PERMISSION` 的 `.permission` 节后，bin 中 RWX 成功，node 以 JIT 模式运行；
+  - 只申请 `kernel.EXEMPT_ANONYMOUS_EXECUTABLE_MEMORY`（normal）时连应用进程都是 EINVAL，不能替代 `ALLOW_WRITABLE_CODE_MEMORY`。
+- `--jitless` 下 V8 没有 WebAssembly，Node 内置 `fetch`（undici 的 llhttp 是 WASM）报 `WebAssembly is not defined`。
+- 其他应用（如 WorkBuddy 的 Electron 里跑的 `node .../codebuddy`）也以同样方式运行 node。
+
+## seccomp 与 SIGSYS（真机实测）
+
+- OpenHarmony 公开的应用策略 [app.seccomp.policy](https://gitee.com/openharmony/startup_init/blob/master/services/modules/seccomp/seccomp_policy/app.seccomp.policy)：
+  白名单外一律 `TRAP`；`clone` 带命名空间标志时 TRAP；`linkat`、`statfs`、`copy_file_range`、`inotify_*`、`memfd_create` 等在白名单内。
+- libuv（Node 24）即使设置 `UV_USE_IO_URING=0`，每个事件循环初始化仍会调用 3 次 `io_uring_setup`(425)，被 TRAP；
+  `libkimicompat.so` 把它改成 `-ENOSYS` 后正常降级到 epoll。每个 worker 线程也会触发同样的 3 次。
+- 若 TRAP 发生时该线程屏蔽了 SIGSYS，内核强制按默认动作杀进程；兼容层因此接管 `pthread_sigmask`/`sigprocmask`，不允许屏蔽 SIGSYS
+  （musl 内部用原始系统调用的屏蔽窗口仍无法覆盖）。
+- 被 SIGSYS 杀掉的进程**不会**留下 FaultLogger 崩溃记录（SIGTRAP、SIGABRT 会）。
+- kimi 登录后启动时，在主进程里创建会话搜索 worker（`dist/search-worker.mjs`，带 `execArgv: []`、`resourceLimits`、`name`）
+  约 70ms 后 node 被 SIGSYS 结束，兼容层没有记录到对应的 TRAP；同样的 worker 在独立 node 进程里能正常启动并回 `ready`，
+  任意参数组合的空 worker 也正常。根因待查，当前用 `KIMI_HMOS_NO_SEARCH_WORKER=1` 禁用该 worker。
+- 沙箱里硬链接 `link()` 正常（与 harmonyos-node-notes 在其设备上的 EACCES 结论不同），`statfs`/`fsync` 目录/`copyFile`/`truncate`/`writev` 正常。
+
+## 排障手段（真机实测）
+
+- `hdc shell -b <bundle>`：以 shell 身份进入 `/mnt/debug/100/debug_hap/<bundle>`，读不到 `/data/storage/el2/...` 沙箱文件。
+- 无线调试要求两端二层互通（同网段但 ARP 不通的网络会失败）；USB-C 连接 + “USB 调试”最稳。
+- hilog 会被 ArkWeb 的 debug 日志冲掉，持续抓取用 `hdc shell "hilog -T KimiShell" > file`。
+- `hdc shell snapshot_display -f /data/local/tmp/x.jpeg` + `hdc file recv` 截屏；`hdc shell "bm dump -n <bundle>"` 看权限授予状态与 executableBinaryPaths。
+- 应用内 `FaultLogger.query(CPP_CRASH)` 能查到本 uid 下（含 node 子进程）的崩溃栈。
+- `os.cpus()` 在沙箱里返回空数组（/proc/cpuinfo 不可读）；`nproc` 可用。

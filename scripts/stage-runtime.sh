@@ -19,7 +19,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/versions.env"
 CLT="${DEVECO_CLI_CLT_PATH:-$HOME/DevTools/command-line-tools-26/command-line-tools}"
 HNPCLI="$CLT/sdk/default/openharmony/toolchains/hnpcli"
-CC="$CLT/sdk/default/openharmony/native/llvm/bin/aarch64-unknown-linux-ohos-clang"
 OBJCOPY="$CLT/sdk/default/openharmony/native/llvm/bin/llvm-objcopy"
 READELF="$CLT/sdk/default/openharmony/native/llvm/bin/llvm-readelf"
 
@@ -54,9 +53,6 @@ add_permission_section() { # <elf>
 install -m 0755 "$NODE_SRC/bin/node" "$LIBS_OUT/node"
 add_permission_section "$LIBS_OUT/node"
 log "node $NODE_VERSION → entry/libs/arm64-v8a/node（含 .permission）  $(du -h "$LIBS_OUT/node" | cut -f1)"
-# 诊断工具：检查被拉起的二进制能否获得 JIT 所需的可执行内存
-"$CC" -O2 -Wall -o "$LIBS_OUT/jitprobe" "$ROOT/entry/src/main/cpp/tools/jitprobe.c"
-add_permission_section "$LIBS_OUT/jitprobe"
 
 # --- kimicode.hnp -----------------------------------------------------------
 kimi_stage="$STAGE/kimicode"

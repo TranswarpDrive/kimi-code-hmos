@@ -47,8 +47,9 @@
     ],
     "requestPermissions": [
       {
-        // 受限（ACL）权限：HNP 内的 node 由本应用拉起，其 V8 JIT 所需的可写代码内存权限由本应用提供。
+        // 受限（ACL）权限：V8 JIT 需要可写可执行的匿名内存。随包 node 经 INHERIT_PARENT_PERMISSION 继承它。
         // 缺少它时 node 会在启动阶段 SIGTRAP，只能降级 --jitless（而 jitless 下没有 WebAssembly，fetch 不可用）。
+        // 实测 2in1 的 normal 级 kernel.EXEMPT_ANONYMOUS_EXECUTABLE_MEMORY 不能替代它。
         // 调试 Profile 由 devecocli signature generate 自动带上该 ACL；上架需另行向 AGC 申请。
         "name": "ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY"
       },
@@ -99,14 +100,12 @@
     ],
     // 解压模式：libs 安装时解压成真实文件（executableBinaryPaths 的前提）
     "compressNativeLibs": true,
-    // 2in1「应用程序包集成 bin 文件」（API 24+）：声明的二进制会获得本应用的内核权限（JIT）
-    // node 由 scripts/stage-runtime.sh 放到 entry/libs/arm64-v8a/
+    // 2in1「应用程序包集成 bin 文件」（API 24+）。bin 的权限写在它自己的 ELF .permission 节里：
+    // node 声明了 INHERIT_PARENT_PERMISSION，被本应用拉起时继承 JIT 与联网等 system_grant 权限。
+    // node 由 scripts/stage-runtime.sh 加好 .permission 节后放到 entry/libs/arm64-v8a/
     "executableBinaryPaths": [
       {
         "path": "libs/arm64-v8a/node"
-      },
-      {
-        "path": "libs/arm64-v8a/jitprobe"
       }
     ],
     // 私有 HNP：安装后位于沙箱 /data/app/<name>.org/<name>_<version>/

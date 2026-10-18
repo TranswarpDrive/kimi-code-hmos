@@ -18,6 +18,7 @@ struct Index {
   @State logTail: string = '';
   @State logExpanded: boolean = false;
   @State warning: string = '';
+  @State debugEnabled: boolean = false;
   private controller: webview.WebviewController = new webview.WebviewController();
   private bridge: KimiHostBridge = new KimiHostBridge((url: string) => {
     this.openOutside(url);
@@ -29,6 +30,7 @@ struct Index {
   private webReady: boolean = false;
 
   aboutToAppear(): void {
+    this.debugEnabled = KimiServer.get().isDebugEnabled();
     this.unsubscribe = KimiServer.get().subscribe((status: ServerStatus) => {
       this.onStatus(status);
     });
@@ -197,6 +199,16 @@ struct Index {
         if (this.phase === ServerPhase.FAILED || this.phase === ServerPhase.IDLE) {
           Button('重新启动服务')
             .onClick(() => {
+              KimiServer.get().restart();
+            })
+          Button(this.debugEnabled ? '关闭调试日志并重启' : '开启调试日志并重启')
+            .type(ButtonType.Normal)
+            .borderRadius(8)
+            .backgroundColor($r('sys.color.comp_background_tertiary'))
+            .fontColor($r('sys.color.font_primary'))
+            .onClick(() => {
+              this.debugEnabled = !this.debugEnabled;
+              KimiServer.get().setDebugEnabled(this.debugEnabled);
               KimiServer.get().restart();
             })
         }

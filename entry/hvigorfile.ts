@@ -5,7 +5,7 @@ import { hapTasks, OhosHapContext, OhosPluginId, Target } from '@ohos/hvigor-oho
 import { HvigorNode, HvigorPlugin } from '@ohos/hvigor';
 
 // 由 scripts/stage-runtime.sh 生成；hvigor 自己不会把它们打进 HAP
-const EXECUTABLES: string[] = ['libs/arm64-v8a/node', 'libs/arm64-v8a/jitprobe'];
+const EXECUTABLES: string[] = ['libs/arm64-v8a/node'];
 
 function listHnp(moduleDir: string): string[] {
   const hnpDir = path.join(moduleDir, 'hnp');

@@ -101,3 +101,13 @@
 - `hdc shell snapshot_display -f /data/local/tmp/x.jpeg` + `hdc file recv` 截屏；`hdc shell "bm dump -n <bundle>"` 看权限授予状态与 executableBinaryPaths。
 - 应用内 `FaultLogger.query(CPP_CRASH)` 能查到本 uid 下（含 node 子进程）的崩溃栈。
 - `os.cpus()` 在沙箱里返回空数组（/proc/cpuinfo 不可读）；`nproc` 可用。
+
+## 对外侧载分发（2026-10 调研）
+
+- 鸿蒙电脑仍未开放“任意来源安装”（华为 2025-06 表示会逐步开放，2026 年下半年的评测仍称未开放）。
+- 应用市场之外的途径：调试 Profile（绑定 UDID，账号最多 100 台设备）、“指定设备发布（原内部测试）”（仅企业开发者，浏览器
+  `store://enterprise/manifest?url=` 安装）、AGC 邀请/公开测试（仍经应用市场）。个人分发的现实做法是接收方用
+  [HoKit](https://github.com/yabi-zzh/HoKit)、小白调试助手（auto-installer，已闭源）以自己的华为账号自动申请调试证书 + Profile 后重签安装。
+- 小白调试助手 GitHub issue #63“带 HNP 的 HAP 无法正常安装”仍为 Open（本机的新版程序里已有 HnpPackage/hnpcli 与 AclPage 相关代码）；
+  HoKit README 提到多包签名顺序会影响 ACL，说明它按包内声明自动申请受限权限。为降低风险，本项目不再使用 HNP。
+- `resources/resfile` 安装时解压到 `context.resourceDir`（API 11+）；打包工具对 resources 一律 Stored，重写为 deflate 后需真机确认可正常解压。

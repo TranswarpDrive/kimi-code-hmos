@@ -107,14 +107,6 @@
       {
         "path": "libs/arm64-v8a/node"
       }
-    ],
-    // 私有 HNP：安装后位于沙箱 /data/app/<name>.org/<name>_<version>/
-    // .hnp 由 scripts/stage-runtime.sh 生成到 entry/hnp/arm64-v8a/，构建时由 entry/hvigorfile.ts 注入 HAP
-    "hnpPackages": [
-      {
-        "package": "kimicode.hnp",
-        "type": "private"
-      }
     ]
   }
 }

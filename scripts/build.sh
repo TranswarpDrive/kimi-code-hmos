@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 一键构建：下载依赖 → 放置 node / 打 HNP → hvigor 构建（InjectHnp 注入 + SignHap 签名）→ 复制到 dist/
+# 一键构建：下载依赖 → stage-runtime → hvigor 构建（InjectRuntime 注入 node + SignHap 签名）→ 复制到 dist/
 # 用法：scripts/build.sh [debug|release]
-# 没有 signing/*.local.json 时只产出未签名 HAP（可用于检查结构，不能安装）。
+# 总是产出未签名 HAP（分发用）；有 signing/*.local.json 时另产出已签名 HAP（自用）。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,17 +27,28 @@ version="$(sed -n 's/.*"versionName": *"\([^"]*\)".*/\1/p' "$ROOT/AppScope/app.j
 name="KimiCode-hmos-$version-kimi$KIMI_CODE_VERSION-$MODE"
 mkdir -p "$ROOT/dist"
 
-if [[ -f "$out/entry-default-signed.hap" ]]; then
-  hap="$ROOT/dist/$name-signed.hap"
-  cp "$out/entry-default-signed.hap" "$hap"
-else
-  hap="$ROOT/dist/$name-unsigned.hap"
-  cp "$out/entry-default-unsigned.hap" "$hap"
-  log "未配置签名，只生成了未签名 HAP；先运行 scripts/setup-signing.sh"
-fi
+check_hap() { # <hap>
+  local listing
+  listing="$(unzip -l "$1")"
+  for entry in libs/arm64-v8a/node libs/arm64-v8a/libkimicompat.so libs/arm64-v8a/libkimihost.so \
+    resources/resfile/kimicode/package/dist/main.mjs resources/resfile/kimicode/runtime/ohos-preload.cjs module.json; do
+    [[ "$listing" == *"$entry"* ]] || die "$(basename "$1") 缺少 $entry"
+  done
+}
 
-listing="$(unzip -l "$hap")"
-for entry in libs/arm64-v8a/node libs/arm64-v8a/libkimicompat.so libs/arm64-v8a/libkimihost.so hnp/arm64-v8a/kimicode.hnp module.json; do
-  [[ "$listing" == *"$entry"* ]] || die "HAP 缺少 $entry"
-done
-log "产物：$hap（$(du -h "$hap" | cut -f1)）"
+# 未签名包：发给别人用小白调试助手、HoKit 等工具以他们自己的华为账号重签安装
+unsigned="$ROOT/dist/$name-unsigned.hap"
+cp "$out/entry-default-unsigned.hap" "$unsigned"
+check_hap "$unsigned"
+shasum -a 256 "$unsigned" | awk '{print $1}' >"$unsigned.sha256"
+log "未签名（分发用）：$unsigned（$(du -h "$unsigned" | cut -f1)）"
+
+# 已签名包：用本机签名配置签的，只能装到 Profile 里注册过的设备（scripts/install.sh 用它）
+if [[ -f "$out/entry-default-signed.hap" ]]; then
+  signed="$ROOT/dist/$name-signed.hap"
+  cp "$out/entry-default-signed.hap" "$signed"
+  check_hap "$signed"
+  log "已签名（自用）：$signed"
+else
+  log "未配置签名，没有生成已签名 HAP（自用安装前先运行 scripts/setup-signing.sh）"
+fi

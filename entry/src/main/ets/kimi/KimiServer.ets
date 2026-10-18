@@ -6,7 +6,7 @@ import { process, util } from '@kit.ArkTS';
 import kimihost from 'libkimihost.so';
 import { logRecentCrashes } from './Diagnostics';
 import { Log } from './Log';
-import { KIMI_CODE_VERSION, KIMI_HNP_ROOT, NODE_VERSION } from './RuntimeInfo';
+import { KIMI_CODE_VERSION, KIMI_RESFILE_DIR, NODE_VERSION } from './RuntimeInfo';
 
 export enum ServerPhase {
   IDLE = 'idle',
@@ -133,6 +133,8 @@ export class KimiServer {
   private forwardTimer: number = -1;
   /** 解压后的原生库目录：node（executableBinaryPaths）、libc++_shared.so、libkimicompat.so */
   private libDir: string = '';
+  /** kimi-code 包目录：<context.resourceDir>/kimicode（resfile 安装时解压出的只读文件） */
+  private kimiRoot: string = '';
 
   static get(): KimiServer {
     if (KimiServer.instance === null) {
@@ -152,7 +154,8 @@ export class KimiServer {
     this.pidPath = `${logDir}/kimi-server.pid`;
     this.debugFlagPath = `${context.filesDir}/debug.flag`;
     this.libDir = kimihost.nativeLibDir();
-    Log.info(`native lib dir: ${this.libDir}`);
+    this.kimiRoot = `${context.resourceDir}/${KIMI_RESFILE_DIR}`;
+    Log.info(`native lib dir: ${this.libDir}, kimi root: ${this.kimiRoot}`);
     this.startLogForwarding();
   }
 
@@ -447,12 +450,12 @@ export class KimiServer {
     const required: string[] = [
       this.nodePath,
       `${this.libDir}/libkimicompat.so`,
-      `${KIMI_HNP_ROOT}/package/dist/main.mjs`,
-      `${KIMI_HNP_ROOT}/runtime/ohos-preload.cjs`
+      `${this.kimiRoot}/package/dist/main.mjs`,
+      `${this.kimiRoot}/runtime/ohos-preload.cjs`
     ];
     for (const path of required) {
       if (!pathExists(path)) {
-        throw new Error(`内置运行时缺失：${path}\n请确认 HAP 包含 libs/arm64-v8a/node 与 kimicode.hnp，并已完整安装。`);
+        throw new Error(`内置运行时缺失：${path}\n请确认 HAP 包含 libs/arm64-v8a/node 与 resources/resfile/kimicode，并已完整安装。`);
       }
     }
   }
@@ -501,13 +504,13 @@ export class KimiServer {
   }
 
   private spawnServer(port: number, seq: number): number {
-    const main = `${KIMI_HNP_ROOT}/package/dist/main.mjs`;
+    const main = `${this.kimiRoot}/package/dist/main.mjs`;
     const args: string[] = [this.nodePath];
     if (this.jitless) {
       args.push('--jitless');
     }
     args.push(
-      '--require', `${KIMI_HNP_ROOT}/runtime/ohos-preload.cjs`,
+      '--require', `${this.kimiRoot}/runtime/ohos-preload.cjs`,
       main,
       'web',
       '--no-open',

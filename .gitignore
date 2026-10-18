@@ -19,9 +19,10 @@
 # 下载的第三方依赖（node 运行时、kimi-code npm 包），由 scripts/fetch-deps.sh 生成
 /vendor/
 
-# 生成的 HNP 包、随包 node 与中间产物，由 scripts/stage-runtime.sh 生成
-/entry/hnp/
+# 随包 node、kimi-code 包与中间产物，由 scripts/stage-runtime.sh 生成
 /entry/libs/
+/entry/src/main/resources/resfile/kimicode/
+/entry/hnp/
 /out/
 
 # 最终产物

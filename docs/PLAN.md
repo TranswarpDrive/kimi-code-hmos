@@ -14,7 +14,8 @@
 | Node 运行时 | [hqzing/ohos-node](https://github.com/hqzing/ohos-node) v24.x（官方源码 `--dest-os=openharmony` 交叉编译） | Harmonybrew 生态通用的鸿蒙版 Node；可按其 build.sh 自行复现 |
 | 运行方式 | 子进程（fork+execve），不在进程内嵌 libnode | 2in1 允许执行包内 bin；崩溃隔离、可重启 |
 | node 分发 | `libs/arm64-v8a/node` + `executableBinaryPaths` + ELF `.permission`（INHERIT_PARENT_PERMISSION） | 只有这样 node 才能继承应用的 JIT/联网权限；HNP 里的二进制拿不到 |
-| kimi JS 分发 | 私有 HNP（`hnpPackages` type=private） | 官方 Native 包机制，安装即解包，路径固定 |
+| kimi JS 分发 | `resources/resfile/kimicode`（安装时解压为真实文件） | 早期用私有 HNP；改 resfile 是为兼容小白调试助手等重签工具 |
+| 对外分发 | 未签名 HAP + 接收方用 HoKit/小白调试助手以自己账号重签侧载，仅 API 26 | 不上架；个人开发者拿不到随包 ELF 的“二进制证书” |
 | 签名 | `devecocli auth login` + `devecocli signature generate`（调试证书+调试 Profile） | 官方命令行自动签名；侧载不需要上架用的“二进制证书” |
 | 外链 | 注入脚本接管 `window.open` 与外链点击 + `onLoadIntercept` 兜底 → `openLink` | kimi Web 用 `window.open(url,'_blank')` 和“先开空窗再改 location”两种写法 |
 
@@ -56,10 +57,14 @@
 - [ ] git、python 等常用工具（同样以随包 bin + INHERIT_PARENT_PERMISSION 方式）
 - [ ] node-pty（Web 终端面板）
 
-### M6 升级与分发 ⏳
+### M6 升级与分发 🔄
+- [x] `compatibleSdkVersion` 定为 26.0.0（只支持 API 26 的 2in1）
+- [x] 去掉 HNP，kimi 包改走 resfile（resfile 条目 deflate 重写，HAP 保持 56MB）；`build.sh` 总是产出未签名包 + sha256
+- [ ] 真机验证 resfile 版本（🔒 需重新连接设备）与 release 构建模式
+- [ ] 用 HoKit / 小白调试助手实测“未签名包 → 重签 → 安装 → JIT 正常”（确认 ACL 被带上）
 - [ ] 升级 kimi-code：改 `scripts/versions.env` → 重新打包 → 回归
 - [ ] （可选）jitless 兜底：用 `node:https` 实现 fetch，避免无 JIT 时完全不能联网
-- [ ] （可选）上架：需向 AGC 申请 `ALLOW_WRITABLE_CODE_MEMORY` ACL 与随包 ELF 的“二进制证书”（个人开发者拿不到）
+- [ ] （可选）jitless 兜底的 fetch：万一重签工具没带上 JIT 的 ACL，应用仍能联网（性能较差）
 
 ## 风险与预案
 

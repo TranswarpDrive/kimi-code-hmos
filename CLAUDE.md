@@ -1,7 +1,8 @@
 # CLAUDE.md — Kimi Code 鸿蒙PC 外壳（kimi-code-hmos）
 
 非官方的个人侧载项目：把官方 Kimi Code Web（由 Kimi Code CLI 的 `kimi web` 提供）包成一个鸿蒙PC（2in1）HAP。
-不用 Electron，用 ArkTS + ArkWeb 做壳；Node 运行时作为随包 bin、kimi-code npm 包作为私有 HNP 内置进 HAP。
+不用 Electron，用 ArkTS + ArkWeb 做壳；Node 运行时作为随包 bin、kimi-code npm 包作为 resfile 资源内置进 HAP。
+分发方式：只支持 API 26 的 2in1，接收方用小白调试助手、HoKit 等工具以自己的华为开发者账号重签侧载（`dist/*-unsigned.hap`）。
 已在 MOR-M1（HarmonyOS 7.0.0，API 26）真机跑通：JIT、登录（系统浏览器授权）、对话、Shell 工具。
 
 计划与进度见 [docs/PLAN.md](docs/PLAN.md)，平台踩坑与资料来源见 [docs/HARMONYOS-NOTES.md](docs/HARMONYOS-NOTES.md)。
@@ -11,9 +12,10 @@
 ```
 EntryAbility (ArkTS)
  ├─ KimiServer.ets ── libkimihost.so (NAPI: fork+execve / kill / waitpid 线程 / nativeLibDir / probeJit)
- │      └─ 子进程: <libs>/node  --require <kimi HNP>/runtime/ohos-preload.cjs
- │                  <kimi HNP>/package/dist/main.mjs web --no-open --port <p> --web-title "Kimi Code"
+ │      └─ 子进程: <libs>/node  --require <kimi>/runtime/ohos-preload.cjs
+ │                  <kimi>/package/dist/main.mjs web --no-open --port <p> --web-title "Kimi Code"
  │         <libs> = /data/storage/el1/bundle/libs/arm64（compressNativeLibs=true 解压出的真实目录）
+ │         <kimi> = <context.resourceDir>/kimicode（resfile 安装时解压出的只读文件）
  │         node 的 ELF .permission 节声明 INHERIT_PARENT_PERMISSION → 继承应用的 JIT、联网权限
  │         env: HOME=<filesDir>/home  LD_LIBRARY_PATH=<libs>  LD_PRELOAD=<libs>/libkimicompat.so
  │              UV_USE_IO_URING=0  KIMI_HMOS_NO_SEARCH_WORKER=1  KIMI_HMOS_DEBUG=0|1 ...
@@ -23,7 +25,7 @@ EntryAbility (ArkTS)
         └─ 外链(含 OAuth 设备码授权页) → UIAbilityContext.openLink → 系统默认浏览器
 ```
 
-- kimi HNP 安装后在沙箱内：`/data/app/kimicode.org/kimicode_<ver>/`（`HNP_PRIVATE_HOME=/data/app`）。
+- 不用 HNP：重签工具对带 HNP 的 HAP 支持不稳定；resfile 是标准资源目录，任何工具都不会动它。
 - kimi 登录是 OAuth 设备码流程：服务端轮询 token，浏览器授权后无需回跳应用。
 - `server.token` 由 kimi 首次启动生成在 `$HOME/.kimi-code/server.token`（0600），壳读取它拼 URL。
 - 就绪探测：`GET /api/v1/healthz`（免鉴权）。node 启动即崩（SIGTRAP 等）时自动 `--jitless` 重试并在页面顶部提示。
@@ -35,21 +37,21 @@ EntryAbility (ArkTS)
 | `AppScope/` | 应用级配置（bundleName `com.kimicodehmos.app`） |
 | `entry/src/main/ets/kimi/` | 服务管理、外链、Web 桥、权限、长时任务、崩溃日志诊断 |
 | `entry/src/main/cpp/` | NAPI `libkimihost.so`、LD_PRELOAD 兼容层 `compat/ohos_compat.c` → `libkimicompat.so` |
-| `entry/hvigorfile.ts` | `InjectRuntime` 任务：PackageHap 后把 `libs/arm64-v8a/node` 与 `hnp/` 注入未签名 HAP |
+| `entry/hvigorfile.ts` | `InjectRuntime` 任务：PackageHap 后注入 `libs/arm64-v8a/node`，并把 resfile 条目改为 deflate |
 | `hvigorfile.ts` | 构建时注入本机签名配置 `signing/*.local.json` |
 | `runtime/ohos-preload.cjs` | node 预加载补丁（link 回退、worker 继承预加载、禁用搜索 worker、调试追踪） |
 | `runtime/bin-permission.json` | 写进 node `.permission` 节的权限声明 |
 | `runtime/kimi-deps/` | kimi 运行时依赖（ws、qrcode）的锁定清单 |
 | `scripts/` | `fetch-deps.sh` / `stage-runtime.sh` / `setup-signing.sh` / `build.sh` / `install.sh` |
 | `scripts/versions.env` | 锁定的 Node、kimi-code 版本与校验值 |
-| `vendor/`、`entry/libs/`、`entry/hnp/`、`out/`、`dist/` | 生成物，均不入库 |
+| `vendor/`、`entry/libs/`、`entry/src/main/resources/resfile/kimicode/`、`dist/` | 生成物，均不入库 |
 
 ## 常用命令
 
 ```bash
 export DEVECO_CLI_CLT_PATH=$HOME/DevTools/command-line-tools-26/command-line-tools   # devecocli 需要
 scripts/setup-signing.sh [default --force]   # devecocli 登录 + 生成调试证书/Profile（需连设备）；改了 ACL 权限要 --force
-scripts/build.sh                             # 下载校验依赖 → stage-runtime → hvigor 构建签名，产物在 dist/
+scripts/build.sh [release]                   # 下载校验依赖 → stage-runtime → hvigor 构建；dist/ 下有未签名（分发）与已签名（自用）HAP
 scripts/install.sh                           # hdc install -r 并启动（换证书后需先 hdc uninstall com.kimicodehmos.app）
 hdc shell "hilog -T KimiShell"               # 壳日志 + 转发的 node 输出（[node] 前缀，token 已打码）
 ```
@@ -60,12 +62,15 @@ hdc shell "hilog -T KimiShell"               # 壳日志 + 转发的 node 输出
 
 ## 平台约束（改代码前必读）
 
-- 只面向 `2in1`。手机/平板不允许应用 fork/exec 自带二进制。
+- 只面向 `2in1`、API 26（`compatibleSdkVersion` 26.0.0）。手机/平板不允许应用 fork/exec 自带二进制；
+  `executableBinaryPaths`（API 24+）、`INHERIT_PARENT_PERMISSION`（API 23+）在低版本系统不可用。
 - **随包 bin 的权限写在它自己的 ELF `.permission` 节**（官方“应用程序包集成bin文件（PC/2in1）”）。
   node 声明 `INHERIT_PARENT_PERMISSION`，应用也必须声明它；没有它时 exec 出来的 node 拿不到应用的 JIT 与联网权限
   （放在 HNP 里、或只在 executableBinaryPaths 声明都不行，实测 mmap(RWX) 返回 EINVAL）。
 - JIT 需要受限权限 `kernel.ALLOW_WRITABLE_CODE_MEMORY`（调试 Profile 由 devecocli 自动带 ACL）；`kernel.EXEMPT_ANONYMOUS_EXECUTABLE_MEMORY` 实测不能替代。
 - node 不能被 strip（会删掉 `.permission` 节）；hvigor 只收 libs 下 `.so`，所以 node 由 `InjectRuntime` 原样注入。
+- 打包工具把 resources 下文件一律不压缩存储（kimi 包 53MB），`InjectRuntime` 用 deflate 重写 resfile 条目（HAP 90MB → 56MB）。
+- 重签工具必须把受限权限 `kernel.ALLOW_WRITABLE_CODE_MEMORY` 写进接收方的调试 Profile（HoKit 自动；小白调试助手有 ACL 设置页），否则安装失败。
 - 应用 seccomp 对白名单外 syscall 用 TRAP；libuv 无视 `UV_USE_IO_URING=0` 仍会探测 `io_uring_setup`(425)，靠 `libkimicompat.so` 的 SIGSYS→-ENOSYS 兜住。兼容层同时禁止任何线程屏蔽 SIGSYS（屏蔽时被 TRAP 会被强制杀进程）。
 - kimi 登录后在主进程创建会话搜索 worker 会让 node 被 SIGSYS 杀掉（根因未明），`KIMI_HMOS_NO_SEARCH_WORKER=1` 让预加载脚本拒绝创建它。
 - kimi 创建 worker 时显式传 `execArgv: []`，预加载脚本会把自己补进去，否则 worker 里没有补丁。

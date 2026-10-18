@@ -19,7 +19,20 @@
 | DevEco Command Line Tools | 默认路径 `~/DevTools/command-line-tools-26/command-line-tools`，可用 `DEVECO_CLI_CLT_PATH` 覆盖 |
 | `devecocli` | `npm i -g @deveco/deveco-cli`，用于命令行登录和自动签名 |
 | JDK 17+、Node 22+、`zip` | 签名工具、构建脚本 |
-| 鸿蒙PC | 开启开发者模式，USB 调试或无线调试 |
+| 鸿蒙PC | HarmonyOS 7.0（API 26），开启开发者模式，USB 调试或无线调试 |
+
+## 给别人侧载（不上架）
+
+只支持 **HarmonyOS 7.0（API 26）的鸿蒙电脑**。把 `dist/` 下的 **`*-unsigned.hap`**（附带 `.sha256`）发给对方，
+对方用 [HoKit](https://github.com/yabi-zzh/HoKit) 或小白调试助手，以**自己的华为开发者账号**“一键签名安装”：
+
+1. 对方在鸿蒙电脑上开启开发者模式与 USB/无线调试，用工具连上设备并登录华为账号；
+2. 导入未签名 HAP，执行“一键签装”。本应用申请了受限权限 `ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY`
+   （内置 Node 的 JIT 需要它）：HoKit 会按包内声明自动申请；小白调试助手如提示 ACL，需在 ACL 设置里勾选/添加该权限；
+3. 装过其他人签名的旧版本时，先卸载再装（不同证书不能覆盖安装；卸载会清空应用内的 Kimi 登录与会话）；
+4. 个人账号签出的调试包有有效期，到期后用同一工具“续期/重新签装”即可。
+
+> 应用以调试证书运行：日志、Profile 都与接收方自己的账号和设备绑定，你的签名材料（`~/.ohos/config`、`signing/`）不要外发。
 
 ## 连接鸿蒙PC
 
@@ -39,7 +52,7 @@ hdc list targets                              # 能看到设备即可
 # 1. 首次：生成调试证书和调试 Profile（需要登录华为开发者账号、并连接鸿蒙PC）
 scripts/setup-signing.sh
 
-# 2. 构建（下载并校验依赖 → 打 HNP → 构建并签名），产物在 dist/
+# 2. 构建（下载并校验依赖 → 放置 node 与 kimi 包 → 构建并签名），产物在 dist/
 scripts/build.sh
 
 # 3. 安装并启动
@@ -55,12 +68,12 @@ HAP
 ├── ets / libs/arm64-v8a/libkimihost.so   ArkTS 壳 + NAPI 进程管理（fork/execve/kill）
 ├── libs/arm64-v8a/node                   鸿蒙版 Node，executableBinaryPaths 声明，ELF .permission 节继承应用权限
 ├── libs/arm64-v8a/libkimicompat.so       LD_PRELOAD 兼容层（seccomp TRAP → -ENOSYS）
-└── hnp/arm64-v8a/kimicode.hnp            → /data/app/kimicode.org/kimicode_<ver>/{package/, runtime/ohos-preload.cjs}
+└── resources/resfile/kimicode/           kimi-code npm 包 + 预加载补丁，安装时解压到 <resourceDir>/kimicode
 ```
 
 - 随包 bin 的权限写在 ELF 的 `.permission` 节：node 声明 `INHERIT_PARENT_PERMISSION`，被壳拉起时继承应用的
   JIT（`kernel.ALLOW_WRITABLE_CODE_MEMORY`）与联网权限，见官方“应用程序包集成bin文件（PC/2in1）”。
-- HAP 签名时 hap-sign-tool 会对 `libs/` 下所有文件和 HNP 内的 ELF 做代码签名。
+- HAP 签名（包括接收方工具的重签）时 hap-sign-tool 会对 `libs/` 下所有文件做代码签名。
 - 应用沙箱的限制由两层兼容处理：`libkimicompat.so`（seccomp TRAP → -ENOSYS，并禁止线程屏蔽 SIGSYS）和
   `ohos-preload.cjs`（硬链接回退、worker 继承补丁、禁用会话搜索 worker）。
 - 细节见 [CLAUDE.md](CLAUDE.md)、[docs/HARMONYOS-NOTES.md](docs/HARMONYOS-NOTES.md)，进度见 [docs/PLAN.md](docs/PLAN.md)。

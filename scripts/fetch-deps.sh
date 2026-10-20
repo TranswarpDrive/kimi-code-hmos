@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # 下载并校验第三方依赖到 vendor/（不入库）：
 #   vendor/node/node-v<ver>-openharmony-arm64/   鸿蒙版 Node 运行时
+#   vendor/git/git-<ver>-ohos-arm64/              鸿蒙版 Git
+#   vendor/python/python-<ver>-ohos-arm64/        鸿蒙版 Python
+#   vendor/tools/rg                                musl ARM64 ripgrep
 #   vendor/kimi-code/package/                    kimi-code npm 包（dist/、dist-web/）
 #   vendor/kimi-deps/node_modules/               kimi 的运行时依赖（ws、qrcode，按 runtime/kimi-deps 锁定）
 # 已下载且校验通过的文件会被复用。
@@ -41,6 +44,56 @@ if [[ ! -x "$node_dir/bin/node" ]]; then
   tar -xJf "$node_archive" -C "$VENDOR/node"
 fi
 [[ -x "$node_dir/bin/node" ]] || die "解压后找不到 $node_dir/bin/node"
+
+# --- git / ripgrep（鸿蒙预编译） --------------------------------------------
+git_archive="$VENDOR/downloads/$GIT_TARBALL"
+if [[ ! -f "$git_archive" || "$(sha256_of "$git_archive")" != "$GIT_SHA256" ]]; then
+  rm -f "$git_archive"
+  log "下载 $GIT_URL"
+  curl -fsSL --retry 2 --connect-timeout 20 -o "$git_archive.part" "$GIT_URL"
+  mv "$git_archive.part" "$git_archive"
+fi
+actual="$(sha256_of "$git_archive")"
+[[ "$actual" == "$GIT_SHA256" ]] || die "git sha256 不匹配：$actual != $GIT_SHA256"
+log "git $GIT_VERSION 校验通过"
+
+git_dir="$VENDOR/git/git-$GIT_VERSION-ohos-arm64"
+if [[ ! -x "$git_dir/bin/git" ]]; then
+  rm -rf "$VENDOR/git" && mkdir -p "$VENDOR/git"
+  tar -xzf "$git_archive" -C "$VENDOR/git"
+fi
+[[ -x "$git_dir/bin/git" ]] || die "解压后找不到 $git_dir/bin/git"
+
+python_archive="$VENDOR/downloads/$PYTHON_TARBALL"
+if [[ ! -f "$python_archive" || "$(sha256_of "$python_archive")" != "$PYTHON_SHA256" ]]; then
+  rm -f "$python_archive"
+  log "下载 $PYTHON_URL"
+  curl -fsSL --retry 2 --connect-timeout 20 -o "$python_archive.part" "$PYTHON_URL"
+  mv "$python_archive.part" "$python_archive"
+fi
+actual="$(sha256_of "$python_archive")"
+[[ "$actual" == "$PYTHON_SHA256" ]] || die "Python sha256 不匹配：$actual != $PYTHON_SHA256"
+log "Python $PYTHON_VERSION 校验通过"
+
+python_dir="$VENDOR/python/python-$PYTHON_VERSION-ohos-arm64"
+if [[ ! -x "$python_dir/bin/python3.14" ]]; then
+  rm -rf "$VENDOR/python" && mkdir -p "$VENDOR/python"
+  tar -xzf "$python_archive" -C "$VENDOR/python"
+fi
+[[ -x "$python_dir/bin/python3.14" ]] || die "解压后找不到 $python_dir/bin/python3.14"
+
+rg_archive="$VENDOR/downloads/rg-$RG_BUILD"
+if [[ ! -f "$rg_archive" || "$(sha256_of "$rg_archive")" != "$RG_SHA256" ]]; then
+  rm -f "$rg_archive"
+  log "下载 $RG_URL"
+  curl -fsSL --retry 2 --connect-timeout 20 -o "$rg_archive.part" "$RG_URL"
+  mv "$rg_archive.part" "$rg_archive"
+fi
+actual="$(sha256_of "$rg_archive")"
+[[ "$actual" == "$RG_SHA256" ]] || die "ripgrep sha256 不匹配：$actual != $RG_SHA256"
+mkdir -p "$VENDOR/tools"
+install -m 0755 "$rg_archive" "$VENDOR/tools/rg"
+log "ripgrep（${RG_BUILD}）校验通过"
 
 # --- kimi-code npm 包 ------------------------------------------------------
 kimi_archive="$VENDOR/downloads/moonshot-ai-kimi-code-$KIMI_CODE_VERSION.tgz"

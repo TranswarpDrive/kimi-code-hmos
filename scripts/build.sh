@@ -19,7 +19,7 @@ die() { printf '\033[31m[build] %s\033[0m\n' "$*" >&2; exit 1; }
 
 cd "$ROOT"
 ohpm install >/dev/null
-log "hvigor assembleHap（$MODE）"
+log "hvigor assembleHap（${MODE}）"
 hvigorw assembleHap --mode module -p product=default -p buildMode="$MODE" --no-daemon
 
 out="$ROOT/entry/build/default/outputs/default"
@@ -30,8 +30,11 @@ mkdir -p "$ROOT/dist"
 check_hap() { # <hap>
   local listing
   listing="$(unzip -l "$1")"
-  for entry in libs/arm64-v8a/node libs/arm64-v8a/libkimicompat.so libs/arm64-v8a/libkimihost.so \
-    resources/resfile/kimicode/package/dist/main.mjs resources/resfile/kimicode/runtime/ohos-preload.cjs module.json; do
+  for entry in libs/arm64-v8a/node libs/arm64-v8a/rg libs/arm64-v8a/git \
+    libs/arm64-v8a/git-upload-pack libs/arm64-v8a/git-receive-pack libs/arm64-v8a/git-upload-archive \
+    libs/arm64-v8a/git-shell libs/arm64-v8a/git-remote-https libs/arm64-v8a/libkimicompat.so \
+    libs/arm64-v8a/libkimihost.so resources/resfile/kimicode/package/dist/main.mjs \
+    resources/resfile/kimicode/runtime/ohos-preload.cjs resources/resfile/kimicode/licenses/git.licenses.txt module.json; do
     [[ "$listing" == *"$entry"* ]] || die "$(basename "$1") 缺少 $entry"
   done
 }
@@ -41,7 +44,7 @@ unsigned="$ROOT/dist/$name-unsigned.hap"
 cp "$out/entry-default-unsigned.hap" "$unsigned"
 check_hap "$unsigned"
 shasum -a 256 "$unsigned" | awk '{print $1}' >"$unsigned.sha256"
-log "未签名（分发用）：$unsigned（$(du -h "$unsigned" | cut -f1)）"
+log "未签名（分发用）：${unsigned}（$(du -h "$unsigned" | cut -f1)）"
 
 # 已签名包：用本机签名配置签的，只能装到 Profile 里注册过的设备（scripts/install.sh 用它）
 if [[ -f "$out/entry-default-signed.hap" ]]; then

@@ -61,19 +61,120 @@ fs.link = function link(existingPath, newPath, callback) {
 };
 
 // worker 线程：kimi 创建搜索 worker 时显式传 `execArgv: []`，会丢掉 `--require` 预加载。
-// 给显式 execArgv 补上本文件，让 worker 里同样有这些补丁。
+// 给显式 execArgv 补上本文件；搜索 worker 也可在主线程内联执行，避免沙箱在线程创建阶段杀掉进程。
 const workerThreads = require('node:worker_threads');
+const { EventEmitter } = require('node:events');
 const OriginalWorker = workerThreads.Worker;
+
+class InlineWorker extends EventEmitter {
+  constructor(filename, options) {
+    super();
+    this.filename = filename;
+    this.options = options || {};
+    this.channel = null;
+    this.unrefRequested = false;
+    this.terminated = false;
+  }
+
+  async load() {
+    if (this.terminated) {
+      return;
+    }
+    const { port1, port2 } = new workerThreads.MessageChannel();
+    this.channel = { port1, port2 };
+    if (this.unrefRequested) {
+      this.applyUnref();
+    }
+    port1.on('message', (event) => this.emit('message', event));
+    port1.on('error', (error) => this.emit('error', error));
+    const hadCustomData = Object.prototype.hasOwnProperty.call(globalThis, '__kimiHmosWorkerData');
+    const previousCustomData = globalThis.__kimiHmosWorkerData;
+    const hadParentPort = Object.prototype.hasOwnProperty.call(globalThis, '__kimiHmosParentPort');
+    const previousParentPort = globalThis.__kimiHmosParentPort;
+    globalThis.__kimiHmosParentPort = port2;
+    globalThis.__kimiHmosWorkerData = this.options.workerData;
+    try {
+      const dataMarker = 'const data = workerData;';
+      const portMarker = 'const port = parentPort;';
+      const source = fs.readFileSync(String(this.filename).startsWith('file://') ?
+        require('node:url').fileURLToPath(this.filename) : this.filename, 'utf8');
+      if (!source.includes(dataMarker) || !source.includes(portMarker)) {
+        throw new Error(`inline worker entry protocol markers not found: ${String(this.filename)}`);
+      }
+      const patched = source.replace(dataMarker, 'const data = globalThis.__kimiHmosWorkerData;')
+        .replace(portMarker, 'const port = globalThis.__kimiHmosParentPort;');
+      await import(`data:text/javascript;base64,${Buffer.from(patched).toString('base64')}`);
+    } catch (error) {
+      this.emit('error', error);
+    } finally {
+      if (hadCustomData) {
+        globalThis.__kimiHmosWorkerData = previousCustomData;
+      } else {
+        delete globalThis.__kimiHmosWorkerData;
+      }
+      if (hadParentPort) {
+        globalThis.__kimiHmosParentPort = previousParentPort;
+      } else {
+        delete globalThis.__kimiHmosParentPort;
+      }
+    }
+  }
+
+  postMessage(value) {
+    if (this.channel === null) {
+      throw new Error('inline worker channel is closed');
+    }
+    this.channel.port1.postMessage(value);
+  }
+
+  applyUnref() {
+    if (this.channel === null) {
+      return;
+    }
+    this.channel.port1.unref();
+    this.channel.port2.unref();
+  }
+
+  unref() {
+    this.unrefRequested = true;
+    this.applyUnref();
+    return this;
+  }
+
+  terminate() {
+    this.terminated = true;
+    if (this.channel !== null) {
+      this.channel.port1.close();
+      this.channel.port2.close();
+    }
+    setImmediate(() => this.emit('exit', 0));
+    return Promise.resolve(0);
+  }
+}
+
+let inlineLoadQueue = Promise.resolve();
+function createInlineWorker(filename, options) {
+  const worker = new InlineWorker(filename, options);
+  worker.ready = inlineLoadQueue.then(() => worker.load(), () => worker.load());
+  return worker;
+}
+
 workerThreads.Worker = class OhosWorker extends OriginalWorker {
   constructor(filename, options) {
+    const isSearchWorker = String(filename).endsWith('search-worker.mjs');
+    const mode = process.env.KIMI_HMOS_SEARCH_WORKER_MODE ||
+      (process.env.KIMI_HMOS_NO_SEARCH_WORKER === '1' ? 'disabled' : 'inline');
+    if (process.env.KIMI_HMOS_DEBUG === '1') {
+      fs.writeSync(2, `[trace] new Worker ${String(filename).slice(0, 200)} (${isSearchWorker ? mode : 'thread'})\n`);
+    }
+    if (isSearchWorker && mode === 'disabled') {
+      throw new Error('search worker disabled by KIMI_HMOS_SEARCH_WORKER_MODE');
+    }
+    if (isSearchWorker && mode === 'inline') {
+      return createInlineWorker(filename, options);
+    }
     if (options && Array.isArray(options.execArgv) && !options.execArgv.includes(__filename)) {
       options = { ...options, execArgv: ['--require', __filename, ...options.execArgv] };
-    }
-    if (process.env.KIMI_HMOS_DEBUG === '1') {
-      fs.writeSync(2, `[trace] new Worker ${String(filename).slice(0, 200)}\n`);
-    }
-    if (process.env.KIMI_HMOS_NO_SEARCH_WORKER === '1' && String(filename).endsWith('search-worker.mjs')) {
-      throw new Error('search worker disabled by KIMI_HMOS_NO_SEARCH_WORKER');
     }
     super(filename, options);
   }

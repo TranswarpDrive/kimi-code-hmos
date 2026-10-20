@@ -10,6 +10,10 @@
         "compatibleSdkVersion": "26.0.0",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
+          "packOptions": {
+            // resfile 有意包含 Python 标准库（.py），不执行“意外源码”检查
+            "enableSourceCodeCheck": false
+          },
           "strictMode": {
             "caseSensitiveCheck": true,
             "useNormalizedOHMUrl": true
@@ -25,6 +29,10 @@
         "compatibleSdkVersion": "6.1.1(24)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
+          "packOptions": {
+            // resfile 有意包含 Python 标准库（.py），不执行“意外源码”检查
+            "enableSourceCodeCheck": false
+          },
           "strictMode": {
             "caseSensitiveCheck": true,
             "useNormalizedOHMUrl": true

@@ -101,11 +101,35 @@
     // 解压模式：libs 安装时解压成真实文件（executableBinaryPaths 的前提）
     "compressNativeLibs": true,
     // 2in1「应用程序包集成 bin 文件」（API 24+）。bin 的权限写在它自己的 ELF .permission 节里：
-    // node 声明了 INHERIT_PARENT_PERMISSION，被本应用拉起时继承 JIT 与联网等 system_grant 权限。
-    // node 由 scripts/stage-runtime.sh 加好 .permission 节后放到 entry/libs/arm64-v8a/
+    // 所有随包 bin 声明 INHERIT_PARENT_PERMISSION，被本应用拉起时继承 JIT、联网等 system_grant 权限。
+    // node、python3、rg、git 及必要的 helper 由 scripts/stage-runtime.sh 加好 .permission 节后放到 entry/libs/arm64-v8a/
     "executableBinaryPaths": [
       {
         "path": "libs/arm64-v8a/node"
+      },
+      {
+        "path": "libs/arm64-v8a/python3"
+      },
+      {
+        "path": "libs/arm64-v8a/rg"
+      },
+      {
+        "path": "libs/arm64-v8a/git"
+      },
+      {
+        "path": "libs/arm64-v8a/git-upload-pack"
+      },
+      {
+        "path": "libs/arm64-v8a/git-receive-pack"
+      },
+      {
+        "path": "libs/arm64-v8a/git-upload-archive"
+      },
+      {
+        "path": "libs/arm64-v8a/git-shell"
+      },
+      {
+        "path": "libs/arm64-v8a/git-remote-https"
       }
     ]
   }

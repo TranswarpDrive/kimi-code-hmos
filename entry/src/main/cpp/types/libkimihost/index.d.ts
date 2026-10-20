@@ -22,6 +22,3 @@ export const isAlive: (pid: number) => boolean;
 
 /** libkimihost.so 所在目录（解压后的原生库目录，node 与 libkimicompat.so 也在这里） */
 export const nativeLibDir: () => string;
-
-/** 诊断：当前进程能否申请匿名可执行内存（V8 JIT 的前提） */
-export const probeJit: () => string;

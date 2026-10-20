@@ -19,6 +19,14 @@
 - 代码里两处用 `fs.link` 做“原子独占创建”且只吞 EEXIST（锁文件 `tryCreate`、minidb `Topology.open`）。
 - 平台判断：`process.platform` 为 `openharmony` 时 ripgrep 自动下载会报 “Unsupported platform/arch”。
 
+## 文件与目录（API 26 真机实测）
+
+- `onShowFileSelector` + `DocumentViewPicker` 可处理 Kimi Web 的单/多文件上传；取消时回传空列表。
+- Kimi 的文件预览会“先开空窗再把 location 改成 blob URL”，壳在当前文档内显示带下载/关闭按钮的预览层；ArkWeb 能渲染其中的 PDF。
+- 会话 ZIP 导出也是 blob 下载，并在点击后立即 `revokeObjectURL`；需在点击捕获阶段同步开始读取，再经 Base64 桥写入本地。
+- 保存下载文件要用 `Environment.getUserDownloadDir()`，本机返回 `/storage/Users/currentUser/Download`（单数）；
+  硬编码成 `Downloads` 会报 `Operation not permitted`。hdc 不能直接读这个共享目录，可用系统文件管理器核对文件和 ZIP 内容。
+
 ## HNP（HarmonyOS Native Package）
 
 - 官方文档：[startup_appspawn/service/hnp](https://gitee.com/openharmony/startup_appspawn/blob/master/service/hnp/README_zh.md)、
@@ -79,6 +87,20 @@
 - `--jitless` 下 V8 没有 WebAssembly，Node 内置 `fetch`（undici 的 llhttp 是 WASM）报 `WebAssembly is not defined`。
 - 其他应用（如 WorkBuddy 的 Electron 里跑的 `node .../codebuddy`）也以同样方式运行 node。
 
+## 随包 Agent 工具（API 26 真机实测）
+
+- `rg` 使用 dsh-harmonyos 的 musl ARM64 预编译文件（本机为 13.0.0），加 `.permission` 并放进 `executableBinaryPaths` 后，
+  Kimi 的 Shell 与 Grep 工具都能按名称找到并返回正确结果，无需伪装 `process.platform` 或走自动下载。
+- git 使用 Harmonybrew/ohos-git 2.55.0。常用命令只需主程序及少量 helper，不必打包完整 `libexec`：
+  当前为 `git-upload-pack`、`git-receive-pack`、`git-upload-archive`、`git-shell`、`git-remote-https`。
+  它们都放在 `libs/arm64-v8a/`，并设 `GIT_EXEC_PATH` 为该目录；git `share/` 放 resfile，`GIT_TEMPLATE_DIR` 指向其中的 `git-core/templates`。
+- `status`、`diff`、`log` 和 HTTPS `ls-remote` 已在真机通过；加入 rg/git 后 HAP 约 76MB。
+- Python 使用 Harmonybrew/ohos-python 3.14.6。`python3` 加 `.permission`，15 个依赖库与全部 `lib-dynload` 平铺进 libs 签名；
+  纯标准库放 resfile 并裁掉 test、开发 config、`__pycache__` 和 GUI 组件，以 `PYTHONHOME`/`PYTHONPATH` 重定位，pycache 指向 cacheDir。
+  真机验证 ssl、sqlite3、zlib、bz2、lzma、ctypes、readline 及真实 HTTPS 200，加入后 HAP 约 105MB。
+- node-pty 1.2.0-beta.15 的 OHOS/musl N-API 模块可以加载，但 `stat`/`open` `/dev/ptmx` 与 `/dev/pts` 都返回 EACCES，
+  `forkpty(3)` 因此失败；当前应用沙箱无法提供 PTY，未把无效模块留在 HAP 中。kimi-code 2.2.0 的 Web UI 也只有终端 API 与翻译文案，没有终端面板实现。
+
 ## seccomp 与 SIGSYS（真机实测）
 
 - OpenHarmony 公开的应用策略 [app.seccomp.policy](https://gitee.com/openharmony/startup_init/blob/master/services/modules/seccomp/seccomp_policy/app.seccomp.policy)：
@@ -90,7 +112,8 @@
 - 被 SIGSYS 杀掉的进程**不会**留下 FaultLogger 崩溃记录（SIGTRAP、SIGABRT 会）。
 - kimi 登录后启动时，在主进程里创建会话搜索 worker（`dist/search-worker.mjs`，带 `execArgv: []`、`resourceLimits`、`name`）
   约 70ms 后 node 被 SIGSYS 结束，兼容层没有记录到对应的 TRAP；同样的 worker 在独立 node 进程里能正常启动并回 `ready`，
-  任意参数组合的空 worker 也正常。根因待查，当前用 `KIMI_HMOS_NO_SEARCH_WORKER=1` 禁用该 worker。
+  任意参数组合的空 worker 也正常。进一步复现确认进程在真实线程创建阶段就被 SIGSYS 结束，尚未进入兼容层处理函数，具体 syscall 仍未定位。
+  当前用 `KIMI_HMOS_SEARCH_WORKER_MODE=inline` 让预加载层在主线程内联执行同一 worker 代码与消息协议；实现需容忍宿主在 `new Worker(...)` 后立即调用 `unref()`，因此 `MessageChannel` 创建前先记录该请求。真机重启后 worker 可启动，索引直连搜索可命中，UI 搜索通过。
 - 沙箱里硬链接 `link()` 正常（与 harmonyos-node-notes 在其设备上的 EACCES 结论不同），`statfs`/`fsync` 目录/`copyFile`/`truncate`/`writev` 正常。
 
 ## 排障手段（真机实测）
@@ -111,7 +134,11 @@
 - 小白调试助手 GitHub issue #63“带 HNP 的 HAP 无法正常安装”仍为 Open（本机的新版程序里已有 HnpPackage/hnpcli 与 AclPage 相关代码）；
   HoKit README 提到多包签名顺序会影响 ACL，说明它按包内声明自动申请受限权限。为降低风险，本项目不再使用 HNP。
 - `resources/resfile` 安装时解压到 `context.resourceDir`（API 11+，实测为 `/data/storage/el1/bundle/entry/resources/resfile`）；
-  打包工具对 resources 一律 Stored，重写为 deflate 后在模拟器上确认能正常解压，API 26 真机待复测。
+  打包工具对 resources 一律 Stored，重写为 deflate 后在模拟器和 API 26 真机（MOR-M1）均确认能正常解压；
+  真机同时复测了 JIT、Web UI、真实对话、关窗回收与重启。
+- 最终分发验收（2026-10-19，MOR-M1 / HarmonyOS 7.0.0.111）：HoKit 对包含 Python 与搜索 worker `unref()` 修复的
+  约 105MB 未签名包重签，`verify-app`/`verify-profile` 通过（Profile 含 `ALLOW_WRITABLE_CODE_MEMORY` 与
+  `FILE_ACCESS_PERSIST`），安装后健康检查、Python/HTTPS、UI 搜索均正常。
 
 ## 2in1 模拟器（2026-10 实测）
 

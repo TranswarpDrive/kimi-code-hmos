@@ -5,14 +5,24 @@ import { hapTasks, OhosHapContext, OhosPluginId, Target } from '@ohos/hvigor-oho
 import { HvigorNode, HvigorPlugin } from '@ohos/hvigor';
 
 // 由 scripts/stage-runtime.sh 生成；hvigor 自己不会把它们打进 HAP
-const EXECUTABLES: string[] = ['libs/arm64-v8a/node'];
+const EXECUTABLES: string[] = [
+  'libs/arm64-v8a/node',
+  'libs/arm64-v8a/rg',
+  'libs/arm64-v8a/git',
+  'libs/arm64-v8a/git-upload-pack',
+  'libs/arm64-v8a/git-receive-pack',
+  'libs/arm64-v8a/git-upload-archive',
+  'libs/arm64-v8a/git-shell',
+  'libs/arm64-v8a/git-remote-https'
+];
+const PYTHON_NATIVE_MANIFEST: string = 'libs/python-native-files.txt';
 // 由 scripts/stage-runtime.sh 生成的 kimi-code 包，路径同时也是它在 HAP 中的条目前缀
 const RESFILE_DIR: string = 'resources/resfile/kimicode';
 
 /**
- * 在 PackageHap 之后、PackingCheck/SignHap 之前，把 module.json5 的 executableBinaryPaths 声明的可执行文件
- * （libs/arm64-v8a/node）补进未签名 HAP：hvigor 只收 libs 下的 .so，官方的 collectAllLibs 方案又会 strip 掉
- * node 的 .permission 节，所以原样注入（compressNativeLibs=true，用 deflate 压缩）。
+ * 在 PackageHap 之后、PackingCheck/SignHap 之前，把可执行文件与清单中的 Python 原生文件
+ * 补进未签名 HAP：hvigor 只收 libs 下的 .so，官方的 collectAllLibs 方案又会 strip 掉 .permission 节，
+ * 所以原样注入（compressNativeLibs=true，用 deflate 压缩）。
  * 之后的 SignHap（或接收方的重签工具）会用 hap-sign-tool 对 libs/ 下所有条目做代码签名。
  */
 function runtimeInjectPlugin(): HvigorPlugin {
@@ -28,7 +38,14 @@ function runtimeInjectPlugin(): HvigorPlugin {
           dependencies: [`${targetName}@PackageHap`],
           postDependencies: [`${targetName}@PackingCheck`, `${targetName}@SignHap`],
           run: () => {
-            const missing = EXECUTABLES.filter((f) => !fs.existsSync(path.join(moduleDir, f)));
+            const manifestPath = path.join(moduleDir, PYTHON_NATIVE_MANIFEST);
+            if (!fs.existsSync(manifestPath)) {
+              throw new Error(`Python 原生文件清单缺失（${PYTHON_NATIVE_MANIFEST}），请先运行 scripts/stage-runtime.sh`);
+            }
+            const pythonFiles = fs.readFileSync(manifestPath, 'utf8').split('\n')
+              .map((line) => line.trim()).filter((line) => line.length > 0);
+            const runtimeFiles = [...EXECUTABLES, ...pythonFiles];
+            const missing = runtimeFiles.filter((f) => !fs.existsSync(path.join(moduleDir, f)));
             if (missing.length > 0) {
               throw new Error(`运行时文件缺失（${missing.join(', ')}），请先运行 scripts/fetch-deps.sh && scripts/stage-runtime.sh`);
             }
@@ -38,7 +55,7 @@ function runtimeInjectPlugin(): HvigorPlugin {
               throw new Error(`在 ${outDir} 找不到唯一的未签名 HAP（${unsigned.join(', ')}）`);
             }
             const hapPath = path.join(outDir, unsigned[0]);
-            execFileSync('zip', ['-6', '-q', '-X', hapPath, ...EXECUTABLES], { cwd: moduleDir });
+            execFileSync('zip', ['-6', '-q', '-X', hapPath, ...runtimeFiles], { cwd: moduleDir });
             // 打包工具把 resources 下的文件一律不压缩存储；resfile 是安装时整体解压的，改用 deflate 重写这些条目，
             // 让内置的 kimi-code 包（约 53MB JS）在 HAP 里只占约三分之一
             const mainDir = path.join(moduleDir, 'src', 'main');
@@ -46,7 +63,7 @@ function runtimeInjectPlugin(): HvigorPlugin {
               execFileSync('zip', ['-q', '-d', hapPath, `${RESFILE_DIR}/*`]);
               execFileSync('zip', ['-6', '-r', '-q', '-X', '-D', hapPath, RESFILE_DIR, '-x', '*.DS_Store'], { cwd: mainDir });
             }
-            console.log(`InjectRuntime: ${EXECUTABLES.join(', ')}, ${RESFILE_DIR} (deflate) -> ${path.relative(moduleDir, hapPath)}`);
+            console.log(`InjectRuntime: ${runtimeFiles.length} 个 libs 文件, ${RESFILE_DIR} (deflate) -> ${path.relative(moduleDir, hapPath)}`);
           }
         });
       });

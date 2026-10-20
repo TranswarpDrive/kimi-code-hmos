@@ -1,11 +1,11 @@
-// libkimihost.so —— 在鸿蒙PC 应用进程里拉起并管理内置 HNP 二进制（node + kimi web）。
+// libkimihost.so —— 在鸿蒙PC 应用进程里拉起并管理随包二进制（node + kimi web）。
 //
-// 只做三件事：
 //   spawn   fork + execve，子进程 stdout/stderr 追加写入日志文件，独立会话（进程组 = pid）
 //   kill    向整个进程组发信号（kimi 自己拉起的 shell 等孙进程一起结束）
 //   onExit  后台线程 waitpid，经 threadsafe function 把退出码送回 ArkTS 线程
+//   另提供 isAlive 与 nativeLibDir 供壳管理生命周期和定位运行时。
 //
-// 2in1 允许应用 fork/exec 包内（HNP）二进制，参见 startup_appspawn/service/hnp 官方文档。
+// 2in1 允许应用 fork/exec 包内 bin；进程模型参见 startup_appspawn/service/hnp 官方文档。
 
 #include <napi/native_api.h>
 #include <hilog/log.h>
@@ -17,7 +17,6 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <string>
-#include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
@@ -357,30 +356,6 @@ napi_value NativeLibDir(napi_env env, napi_callback_info info)
     return result;
 }
 
-// probeJit(): string —— 诊断用：在当前进程里测试 V8 JIT 依赖的两种匿名可执行内存操作，返回 errno 摘要
-napi_value ProbeJit(napi_env env, napi_callback_info info)
-{
-    (void)info;
-    const size_t size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
-    std::string result;
-    void *rwx = mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    result += rwx == MAP_FAILED ? "mmap(RWX)=errno " + std::to_string(errno) : std::string("mmap(RWX)=ok");
-    if (rwx != MAP_FAILED) {
-        munmap(rwx, size);
-    }
-    void *rw = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (rw == MAP_FAILED) {
-        result += "; mmap(RW)=errno " + std::to_string(errno);
-    } else {
-        int ret = mprotect(rw, size, PROT_READ | PROT_EXEC);
-        result += ret == 0 ? "; mprotect(RW->RX)=ok" : "; mprotect(RW->RX)=errno " + std::to_string(errno);
-        munmap(rw, size);
-    }
-    napi_value value = nullptr;
-    napi_create_string_utf8(env, result.c_str(), result.size(), &value);
-    return value;
-}
-
 // isAlive(pid): boolean
 napi_value IsAlive(napi_env env, napi_callback_info info)
 {
@@ -404,7 +379,6 @@ static napi_value Init(napi_env env, napi_value exports)
         {"kill", nullptr, Kill, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isAlive", nullptr, IsAlive, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeLibDir", nullptr, NativeLibDir, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"probeJit", nullptr, ProbeJit, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     return exports;

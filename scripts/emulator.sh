@@ -26,7 +26,7 @@ emulator_target() { hdc list targets 2>/dev/null | tr -d '\r' | grep -E '^127\.0
 "$ROOT/scripts/stage-runtime.sh"
 cd "$ROOT"
 ohpm install >/dev/null
-log "hvigor assembleHap（product=emulator，$MODE）"
+log "hvigor assembleHap（product=emulator，${MODE}）"
 hvigorw assembleHap --mode module -p product=emulator -p buildMode="$MODE" --no-daemon
 hap="$ROOT/entry/build/emulator/outputs/default/entry-default-signed.hap"
 [[ -f "$hap" ]] || die "没有生成已签名 HAP（先运行 scripts/setup-signing.sh）"
@@ -50,7 +50,7 @@ fi
 log "安装 $(basename "$hap") → $target"
 result="$(hdc -t "$target" install -r "$hap" 2>&1)"
 echo "$result"
-[[ "$result" == *"successfully"* ]] || die "安装失败，见上方输出（证书变了要先 hdc -t $target uninstall $BUNDLE）"
+[[ "$result" == *"successfully"* ]] || die "安装失败，见上方输出（证书变了要先 hdc -t $target uninstall ${BUNDLE}）"
 hdc -t "$target" shell aa force-stop "$BUNDLE" >/dev/null 2>&1 || true
 hdc -t "$target" shell aa start -a EntryAbility -b "$BUNDLE"
 log "已启动。日志：hdc -t $target shell \"hilog -T KimiShell\"；截图：hdc -t $target shell snapshot_display -f /data/local/tmp/s.jpeg"

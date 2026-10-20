@@ -11,16 +11,22 @@
 
 ```
 EntryAbility (ArkTS)
- ├─ KimiServer.ets ── libkimihost.so (NAPI: fork+execve / kill / waitpid 线程 / nativeLibDir / probeJit)
+ ├─ KimiServer.ets ── libkimihost.so (NAPI: fork+execve / kill / waitpid 线程 / nativeLibDir)
  │      └─ 子进程: <libs>/node  --require <kimi>/runtime/ohos-preload.cjs
  │                  <kimi>/package/dist/main.mjs web --no-open --port <p> --web-title "Kimi Code"
- │         <libs> = /data/storage/el1/bundle/libs/arm64（compressNativeLibs=true 解压出的真实目录）
+ │         <libs> = /data/storage/el1/bundle/libs/arm64（node、python3、rg、git/helper 与 Python 原生库）
  │         <kimi> = <context.resourceDir>/kimicode（resfile 安装时解压出的只读文件）
- │         node 的 ELF .permission 节声明 INHERIT_PARENT_PERMISSION → 继承应用的 JIT、联网权限
- │         env: HOME=<filesDir>/home  LD_LIBRARY_PATH=<libs>  LD_PRELOAD=<libs>/libkimicompat.so
- │              UV_USE_IO_URING=0  KIMI_HMOS_NO_SEARCH_WORKER=1  KIMI_HMOS_DEBUG=0|1 ...
+ │         随包 bin 的 ELF .permission 节声明 INHERIT_PARENT_PERMISSION → 继承应用的 JIT、联网权限
+ │         env: HOME=<filesDir>/home  PATH=<libs>:...  GIT_EXEC_PATH=<libs>
+ │              GIT_TEMPLATE_DIR=<kimi>/git/share/git-core/templates
+ │              PYTHONHOME=<kimi>/python  PYTHONPATH=<libs>:<kimi>/python/lib/python3.14:...
+ │              PYTHONPYCACHEPREFIX=<cacheDir>/python-pycache  TERMINFO=<kimi>/python/share/terminfo
+ │              LD_LIBRARY_PATH=<libs>  LD_PRELOAD=<libs>/libkimicompat.so
+ │              UV_USE_IO_URING=0  KIMI_HMOS_SEARCH_WORKER_MODE=inline  KIMI_HMOS_DEBUG=0|1 ...
  └─ pages/Index.ets ── ArkWeb 加载 http://127.0.0.1:<p>/#token=<server.token>
-        ├─ document-start 注入脚本接管 window.open 与外链点击 → JS 代理 kimiHost.openExternal
+        ├─ document-start 注入脚本接管外链、blob 下载与 blob 文件预览
+        ├─ onShowFileSelector + DocumentViewPicker 处理上传；WebDownloadDelegate/Base64 处理下载
+        ├─ 原生工具栏：工作目录选择、重启服务、查看日志（token 脱敏）
         ├─ onLoadIntercept 兜底主框架外链
         └─ 外链(含 OAuth 设备码授权页) → UIAbilityContext.openLink → 系统默认浏览器
 ```
@@ -35,16 +41,16 @@ EntryAbility (ArkTS)
 | 路径 | 说明 |
 |---|---|
 | `AppScope/` | 应用级配置（bundleName `com.kimicodehmos.app`） |
-| `entry/src/main/ets/kimi/` | 服务管理、外链、Web 桥、权限、长时任务、崩溃日志诊断 |
+| `entry/src/main/ets/kimi/` | 服务管理、外链、Web 桥、文件上传下载与目录选择、权限、长时任务、崩溃日志诊断 |
 | `entry/src/main/cpp/` | NAPI `libkimihost.so`、LD_PRELOAD 兼容层 `compat/ohos_compat.c` → `libkimicompat.so` |
-| `entry/hvigorfile.ts` | `InjectRuntime` 任务：PackageHap 后注入 `libs/arm64-v8a/node`，并把 resfile 条目改为 deflate |
+| `entry/hvigorfile.ts` | `InjectRuntime` 任务：PackageHap 后注入可执行 bin 与清单中的 Python 原生文件，并把 resfile 条目改为 deflate |
 | `hvigorfile.ts` | 构建时注入本机签名配置 `signing/*.local.json` |
 | `build-profile.json5` | 产品 `default`（分发，只支持 API 26）与 `emulator`（模拟器自测，兼容 API 24） |
-| `runtime/ohos-preload.cjs` | node 预加载补丁（link 回退、worker 继承预加载、禁用搜索 worker、调试追踪） |
-| `runtime/bin-permission.json` | 写进 node `.permission` 节的权限声明 |
+| `runtime/ohos-preload.cjs` | node 预加载补丁（link 回退、worker 继承预加载、搜索 worker 主线程内联、调试追踪） |
+| `runtime/bin-permission.json` | 写进可执行 bin `.permission` 节的权限声明 |
 | `runtime/kimi-deps/` | kimi 运行时依赖（ws、qrcode）的锁定清单 |
 | `scripts/` | `fetch-deps.sh` / `stage-runtime.sh` / `setup-signing.sh` / `build.sh` / `install.sh` / `emulator.sh` |
-| `scripts/versions.env` | 锁定的 Node、kimi-code 版本与校验值 |
+| `scripts/versions.env` | 锁定的 Node、kimi-code、git、Python、ripgrep 版本与校验值 |
 | `vendor/`、`entry/libs/`、`entry/src/main/resources/resfile/kimicode/`、`dist/` | 生成物，均不入库 |
 
 ## 常用命令
@@ -69,17 +75,19 @@ hdc shell "hilog -T KimiShell"               # 壳日志 + 转发的 node 输出
 - 只面向 `2in1`、API 26（`default` 产品的 `compatibleSdkVersion` 26.0.0；`emulator` 产品为 6.1.1(24)，只用于自测）。手机/平板不允许应用 fork/exec 自带二进制；
   `executableBinaryPaths`（API 24+）、`INHERIT_PARENT_PERMISSION`（API 23+）在低版本系统不可用。
 - **随包 bin 的权限写在它自己的 ELF `.permission` 节**（官方“应用程序包集成bin文件（PC/2in1）”）。
-  node 声明 `INHERIT_PARENT_PERMISSION`，应用也必须声明它；没有它时 exec 出来的 node 拿不到应用的 JIT 与联网权限
+  可执行文件声明 `INHERIT_PARENT_PERMISSION`，应用也必须声明它；node 没有它时 exec 后拿不到应用的 JIT 与联网权限
   （放在 HNP 里、或只在 executableBinaryPaths 声明都不行，实测 mmap(RWX) 返回 EINVAL）。
 - JIT 需要受限权限 `kernel.ALLOW_WRITABLE_CODE_MEMORY`（调试 Profile 由 devecocli 自动带 ACL）；`kernel.EXEMPT_ANONYMOUS_EXECUTABLE_MEMORY` 实测不能替代。
-- node 不能被 strip（会删掉 `.permission` 节）；hvigor 只收 libs 下 `.so`，所以 node 由 `InjectRuntime` 原样注入。
-- 打包工具把 resources 下文件一律不压缩存储（kimi 包 53MB），`InjectRuntime` 用 deflate 重写 resfile 条目（HAP 90MB → 56MB）。
+- 带 `.permission` 的 bin 不能被 strip；hvigor 只收 libs 下 `.so`，所以 node、python3 与清单中的 Python 原生文件由 `InjectRuntime` 原样注入。
+- 打包工具把 resources 下文件一律不压缩存储，`InjectRuntime` 用 deflate 重写 resfile 条目；当前 HAP 约 105MB。
+- Python 的所有 ELF 必须留在 libs 签名链；纯标准库放 `<kimi>/python/lib/python3.14`，以 `PYTHONHOME`/`PYTHONPATH` 重定位，pycache 指向可写 cacheDir。
 - 重签工具必须把受限权限 `kernel.ALLOW_WRITABLE_CODE_MEMORY` 写进接收方的调试 Profile（HoKit 自动；小白调试助手有 ACL 设置页），否则安装失败。
 - 应用 seccomp 对白名单外 syscall 用 TRAP；libuv 无视 `UV_USE_IO_URING=0` 仍会探测 `io_uring_setup`(425)，靠 `libkimicompat.so` 的 SIGSYS→-ENOSYS 兜住。兼容层同时禁止任何线程屏蔽 SIGSYS（屏蔽时被 TRAP 会被强制杀进程）。
-- kimi 登录后在主进程创建会话搜索 worker 会让 node 被 SIGSYS 杀掉（根因未明），`KIMI_HMOS_NO_SEARCH_WORKER=1` 让预加载脚本拒绝创建它。
+- kimi 登录后在主进程创建会话搜索 worker 时，node 会在线程创建阶段被 SIGSYS 杀掉（具体 syscall 未定位）；`KIMI_HMOS_SEARCH_WORKER_MODE=inline` 让预加载脚本在主线程内联执行同一 worker 代码与消息协议，保留全文搜索。
 - kimi 创建 worker 时显式传 `execArgv: []`，预加载脚本会把自己补进去，否则 worker 里没有补丁。
 - `os.homedir()` 默认指向不可读的 `/storage/Users/currentUser`，子进程必须设置 `HOME`；`os.cpus()` 在沙箱里返回空数组。
 - `process.platform === 'openharmony'`，不要伪装成 linux（kimi 会去下载 glibc 版 ripgrep 等不可执行文件）。
+- 真机沙箱禁止访问 `/dev/ptmx` 与 `/dev/pts`，node-pty 的 `forkpty` 无法工作，不要靠仅打包原生模块来宣称 Web 终端可用。
 - 受限（ACL）权限只能申请调试 Profile 里有的；改了受限权限要 `setup-signing.sh default --force` 重新生成 Profile。
 - fork 后到 execve 前只能调用 async-signal-safe 函数；argv/envp 在 fork 前准备好。
 

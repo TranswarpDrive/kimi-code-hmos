@@ -43,29 +43,30 @@
 - [x] ArkWeb 加载 Web UI，token 鉴权通过
 - [x] 登录：授权页在系统浏览器打开，授权后 Web UI 变为已登录
 - [x] 对话 + Shell 工具（Agent 执行命令、读文件）在真机可用
-- [x] 登录后重启的 SIGSYS 崩溃：定位到会话搜索 worker，暂时禁用该 worker
+- [x] 登录后重启的 SIGSYS 崩溃：定位到会话搜索 worker 的线程创建阶段，M4 已改为主线程内联执行
 
-### M4 体验完善 ⏳
-- [ ] 查清搜索 worker 触发 SIGSYS 的具体 syscall，恢复会话全文搜索
-- [ ] 文件上传（`onShowFileSelector`）、下载（导出会话 ZIP、文件预览的 blob 窗口）
-- [ ] 工作目录选择（目前默认 `文档/kimi-code-projects`，由 kimi 自己创建）
-- [ ] 窗口内快捷操作：重启服务、查看日志（目前只在启动/失败页提供）
-- [ ] 调试工具链（jitprobe 等）移除后的回归：冷启动、切后台、关闭窗口后进程回收
+### M4 体验完善 ✅
+- [x] 会话全文搜索：真机确认 worker 在线程创建阶段触发 SIGSYS（具体 syscall 未定位），预加载层改为主线程内联执行同一协议，并兼容创建后立即 `unref()`；重启后 worker 可启动，索引直连命中，UI 搜索通过
+- [x] 文件上传（`onShowFileSelector`）、下载（导出会话 ZIP、文件预览的 blob 窗口）：真机验证单/多附件、ZIP 导出与防重名、blob PDF 预览和保存
+- [x] 工作目录选择：系统目录选择器 + 授权/路径持久化，可恢复默认，冷启动保持
+- [x] 窗口内快捷操作：重启服务、查看日志（同端口重启自动重载；日志中的 token 脱敏）
+- [x] 调试工具链（jitprobe 等）移除后的回归：冷启动、切后台（PID 与健康检查不变）、关闭窗口后 Node 回收、再次冷启动恢复
 
-### M5 Agent 工具链补全 ⏳
-- [ ] ripgrep（Rust `aarch64-unknown-linux-ohos` 交叉编译，加 `.permission` 作为随包 bin）
-- [ ] git、python 等常用工具（同样以随包 bin + INHERIT_PARENT_PERMISSION 方式）
-- [ ] node-pty（Web 终端面板）
+### M5 Agent 工具链补全 ✅
+- [x] ripgrep：随包 musl ARM64 预编译 bin（`.permission` 继承权限）；真机验证 `rg 13.0.0`、Shell 搜索和 Kimi Grep 工具正向命中
+- [x] git 2.55.0：随包主程序与 remote-https 等必要 helper；真机验证 status、diff、log 和 HTTPS `ls-remote`
+- [x] Python 3.14.6：解释器与原生库走 libs 签名，纯标准库放 resfile；真机验证 ssl、sqlite3、zlib、bz2、lzma、ctypes、readline 和 HTTPS 200
+- [x] node-pty 评估：原生模块可加载，但真机 `/dev/ptmx`、`/dev/pts` 均为 EACCES，`forkpty` 失败；当前沙箱无法提供 PTY，不集成无效模块
 
-### M6 升级与分发 🔄
+### M6 升级与分发 ✅
 - [x] `compatibleSdkVersion` 定为 26.0.0（只支持 API 26 的 2in1）
-- [x] 去掉 HNP，kimi 包改走 resfile（resfile 条目 deflate 重写，HAP 保持 56MB）；`build.sh` 总是产出未签名包 + sha256
+- [x] 去掉 HNP，kimi 包改走 resfile（resfile 条目 deflate 重写）；`build.sh` 总是产出未签名包 + sha256（加入 M5 工具后 HAP 约 105MB）
 - [x] 2in1 模拟器（HarmonyOS 6.1.1(24)）验证 resfile 版本：安装解压、服务启动、联网（登录设备码请求）、外链、关窗口回收、release 模式
 - [x] `emulator` 产品 + `scripts/emulator.sh`：真机不在手边时自测（模拟器不限制 JIT，JIT/ACL 仍需真机）
-- [ ] API 26 真机复测 resfile 版本（🔒 需重新连接设备）
-- [ ] 用 HoKit / 小白调试助手实测“未签名包 → 重签 → 安装 → JIT 正常”（确认 ACL 被带上）
-- [ ] 升级 kimi-code：改 `scripts/versions.env` → 重新打包 → 回归
-- [ ] （可选）jitless 兜底：用 `node:https` 实现 fetch，万一重签工具没带上 JIT 的 ACL，应用仍能联网（性能较差）
+- [x] API 26 真机复测 resfile 版本（MOR-M1 / HarmonyOS 7.0.0.111：安装解压、JIT、Web UI、真实对话、关窗回收与重启均通过）
+- [x] HoKit 最终验收：对包含 Python 与搜索 worker `unref()` 修复的约 105MB 未签名包重签，`verify-app`/`verify-profile` 通过（Profile 含 JIT 与文件持久化 ACL 及真机 UDID），安装后健康检查、Python/HTTPS、UI 搜索均正常
+- [x] 升级检查：npm 上 `@moonshot-ai/kimi-code` 最新版已是当前内置的 2.2.0，无新版可升级
+- [x] （可选，不阻塞分发）jitless 兜底评估：用 `node:https` 实现 fetch 的方案暂不实现——HoKit 链路已实测带上 JIT ACL 且 JIT 正常；仅当其他重签工具丢失 ACL 时才需要（见风险表）
 
 ## 风险与预案
 

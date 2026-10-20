@@ -66,6 +66,14 @@ function pathExists(path: string): boolean {
   }
 }
 
+function isDirectory(path: string): boolean {
+  try {
+    return fs.statSync(path).isDirectory();
+  } catch (err) {
+    return false;
+  }
+}
+
 function ensureDir(path: string): void {
   try {
     if (!pathExists(path)) {
@@ -135,6 +143,9 @@ export class KimiServer {
   private libDir: string = '';
   /** kimi-code 包目录：<context.resourceDir>/kimicode（resfile 安装时解压出的只读文件） */
   private kimiRoot: string = '';
+  private workspacePathConfig: string = '';
+  private workspaceUriConfig: string = '';
+  private customWorkspace: string = '';
 
   static get(): KimiServer {
     if (KimiServer.instance === null) {
@@ -153,6 +164,18 @@ export class KimiServer {
     this.logPath = `${logDir}/kimi-server.log`;
     this.pidPath = `${logDir}/kimi-server.pid`;
     this.debugFlagPath = `${context.filesDir}/debug.flag`;
+    this.workspacePathConfig = `${context.filesDir}/workspace.path`;
+    this.workspaceUriConfig = `${context.filesDir}/workspace.uri`;
+    try {
+      const saved = readText(this.workspacePathConfig);
+      if (isDirectory(saved)) {
+        this.customWorkspace = saved;
+      } else if (saved !== '') {
+        Log.warn(`ignore unavailable workspace: ${saved}`);
+      }
+    } catch (err) {
+      this.customWorkspace = '';
+    }
     this.libDir = kimihost.nativeLibDir();
     this.kimiRoot = `${context.resourceDir}/${KIMI_RESFILE_DIR}`;
     Log.info(`native lib dir: ${this.libDir}, kimi root: ${this.kimiRoot}`);
@@ -207,12 +230,46 @@ export class KimiServer {
     return `${this.libDir}/node`;
   }
 
-  /** 默认工作目录：有“文档”目录权限时用它，否则用应用沙箱内的 workspace */
+  /** 默认工作目录：优先用户选择，其次“文档”，最后回退到应用沙箱 */
   defaultWorkspace(): string {
+    if (this.customWorkspace !== '' && isDirectory(this.customWorkspace)) {
+      return this.customWorkspace;
+    }
     if (pathExists(USER_DOCUMENTS)) {
       return USER_DOCUMENTS;
     }
     return `${this.context?.filesDir}/workspace`;
+  }
+
+  async setWorkspace(path: string, uri: string): Promise<void> {
+    if (!isDirectory(path)) {
+      throw new Error(`工作目录不可用：${path}`);
+    }
+    const changed = this.customWorkspace !== path;
+    writeText(this.workspaceUriConfig, uri, false);
+    writeText(this.workspacePathConfig, path, false);
+    this.customWorkspace = path;
+    if (changed) {
+      await this.restart();
+    }
+  }
+
+  async resetWorkspace(): Promise<void> {
+    const changed = this.customWorkspace !== '';
+    this.customWorkspace = '';
+    try {
+      fs.unlinkSync(this.workspacePathConfig);
+    } catch (err) {
+      // 配置不存在即可
+    }
+    try {
+      fs.unlinkSync(this.workspaceUriConfig);
+    } catch (err) {
+      // 配置不存在即可
+    }
+    if (changed) {
+      await this.restart();
+    }
   }
 
   async start(): Promise<void> {
@@ -229,7 +286,6 @@ export class KimiServer {
       this.killStaleServer();
       this.rotateLog();
       this.assertRuntimeInstalled();
-      this.logJitProbe();
       this.debug = pathExists(this.debugFlagPath);
       try {
         await this.launch(seq);
@@ -280,15 +336,6 @@ export class KimiServer {
     this.update(ServerPhase.READY, `已就绪（pid ${pid}${mode}）`);
   }
 
-  /** 诊断：应用进程能否申请可执行内存（node 经 INHERIT_PARENT_PERMISSION 继承同样的权限） */
-  private logJitProbe(): void {
-    try {
-      Log.info(`jit probe (app process): ${kimihost.probeJit()}`);
-    } catch (err) {
-      Log.warn(`jit probe failed: ${String(err)}`);
-    }
-  }
-
   private exitLooksLikeJitFailure(): boolean {
     const exit = this.lastExit;
     if (exit === null) {
@@ -318,7 +365,7 @@ export class KimiServer {
     if (this.forwardTimer < 0) {
       this.forwardTimer = setInterval(() => {
         this.forwardLog();
-      }, LOG_FORWARD_INTERVAL_MS);
+      }, this.isDebugEnabled() ? 50 : LOG_FORWARD_INTERVAL_MS);
     }
   }
 
@@ -486,6 +533,12 @@ export class KimiServer {
       `TMPDIR=${ctx.tempDir}`,
       `XDG_CACHE_HOME=${ctx.cacheDir}`,
       `PATH=${path}`,
+      `GIT_EXEC_PATH=${this.libDir}`,
+      `GIT_TEMPLATE_DIR=${this.kimiRoot}/git/share/git-core/templates`,
+      `PYTHONHOME=${this.kimiRoot}/python`,
+      `PYTHONPATH=${this.libDir}:${this.kimiRoot}/python/lib/python3.14:${this.kimiRoot}/python/lib/python3.14/site-packages`,
+      `PYTHONPYCACHEPREFIX=${ctx.cacheDir}/python-pycache`,
+      `TERMINFO=${this.kimiRoot}/python/share/terminfo`,
       // node 没有 RUNPATH，libc++_shared.so 与它同在解压后的 libs 目录
       `LD_LIBRARY_PATH=${this.libDir}`,
       `LD_PRELOAD=${this.libDir}/libkimicompat.so`,
@@ -497,14 +550,15 @@ export class KimiServer {
       'NODE_ENV=production',
       'KIMI_HMOS_SHELL=1',
       `KIMI_HMOS_DEBUG=${this.debug ? '1' : '0'}`,
-      // 在 kimi 主进程里创建会话搜索 worker 会让进程被 SIGSYS 结束（原因待查，见 docs/HARMONYOS-NOTES.md），
-      // 预加载脚本据此拒绝创建该 worker；kimi 会退避重试，只影响会话全文搜索
-      'KIMI_HMOS_NO_SEARCH_WORKER=1'
+      // 沙箱在线程创建阶段会杀掉 kimi 的搜索 worker；预加载脚本改为在主线程内联执行同样的协议和业务代码
+      'KIMI_HMOS_SEARCH_WORKER_MODE=inline'
     ];
   }
 
   private spawnServer(port: number, seq: number): number {
     const main = `${this.kimiRoot}/package/dist/main.mjs`;
+    const workspace = this.defaultWorkspace();
+    Log.info(`workspace: ${workspace}`);
     const args: string[] = [this.nodePath];
     if (this.jitless) {
       args.push('--jitless');
@@ -527,7 +581,7 @@ export class KimiServer {
       file: this.nodePath,
       args: args,
       env: this.buildEnv(),
-      cwd: this.defaultWorkspace(),
+      cwd: workspace,
       logPath: this.logPath,
       onExit: (pid: number, code: number, signal: number) => {
         this.onChildExit(pid, code, signal, seq);
@@ -571,7 +625,7 @@ export class KimiServer {
     throw new Error(`等待服务就绪超时（${READY_TIMEOUT_MS / 1000}s），详见日志。`);
   }
 
-  /** 读取日志尾部，用于启动页/错误页展示 */
+  /** 读取日志尾部，用于启动页/错误页展示；与 hilog 转发一样隐藏 token */
   readLogTail(maxBytes: number): string {
     try {
       if (!pathExists(this.logPath)) {
@@ -584,7 +638,8 @@ export class KimiServer {
         const buffer = new ArrayBuffer(length);
         fs.readSync(file.fd, buffer, { offset: size - length, length: length });
         const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
-        return decoder.decodeToString(new Uint8Array(buffer), { stream: false });
+        const text = decoder.decodeToString(new Uint8Array(buffer), { stream: false });
+        return text.replace(/(#token=|Token:\s*)[A-Za-z0-9_-]+/g, '$1***');
       } finally {
         fs.closeSync(file);
       }

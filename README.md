@@ -1,6 +1,16 @@
 # Kimi Code for HarmonyOS PC（非官方外壳）
 
+> [English Version](README.en.md)
+
 把官方 [Kimi Code](https://www.kimi.com/code) 的 Web UI（`kimi web`）打包成鸿蒙PC（2in1）可侧载的 HAP：
+
+## 项目背景 / Project Background
+
+本项目最初由 **Claude**（Anthropic）协助设计与实现。在 Claude 账号被封禁后，由 **`kimi-k3`** 接手完成最终修复、真机验证、文档收尾与开源发布。
+
+This project was originally developed with assistance from **Claude** (Anthropic). After Claude's account was suspended, **`kimi-k3`** took over to complete the final fixes, real-device validation, documentation wrap-up, and open-source release.
+
+项目作者保留为 **Claude (Anthropic) 与 kimi-k3**；本项目与 Moonshot AI、华为及作者个人设备无关，不包含任何个人身份信息。
 
 - 启动应用 → 自动在后台拉起内置的 `kimi web` 服务（Node 24 + `@moonshot-ai/kimi-code` npm 包，V8 JIT 正常开启）
 - 应用窗口用 ArkWeb 展示官方 Web UI，自动带上本地服务 token

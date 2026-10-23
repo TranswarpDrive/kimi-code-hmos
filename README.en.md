@@ -1,60 +1,64 @@
-# Kimi Code for HarmonyOS PC — unofficial wrapper
+<div align="center">
+  <img src="entry/src/main/resources/base/media/startIcon.png" width="88" alt="Kimi Code icon" />
+  <h1>Kimi Code for HarmonyOS PC</h1>
+  <p>Use Kimi Code on your HarmonyOS computer.</p>
+  <p>
+    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.0">Download v0.2.0</a> ·
+    <a href="docs/INSTALL.md">Installation guide</a> ·
+    <a href="README.md">中文</a>
+  </p>
+  <p>Public preview · HarmonyOS PC / API 26 · MIT</p>
+</div>
 
-[中文](README.md) · [Installation](docs/INSTALL.md) · [Build and release](docs/RELEASING.md) · [Validation record](docs/RELEASE-VALIDATION.md)
+An unofficial HarmonyOS PC port of [Kimi Code](https://www.kimi.com/code). It bundles the Kimi Code Web UI and its runtime in a standalone app, so you can work with your local projects without installing Node, Python or Git separately.
 
-A native ArkTS/ArkWeb wrapper for the official Kimi Code Web UI, bundled with Node, Python, Git and ripgrep.
+## Download and install
 
-**Version 0.2.0 is intended for public testing on HarmonyOS PC / 2in1, API 26.** Phones and tablets are unsupported. Release HAPs are unsigned: recipients must sign them with their own Huawei developer certificate and device profile. This is not an AppGallery release or a signature-free installer.
+1. **[Download the HAP](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.2.0/KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap)**. This is the only file you need to download.
+2. Sign it for your own device with a tool that supports HarmonyOS PC apps, then install it. Follow the [installation guide](docs/INSTALL.md) for the required signing settings.
+3. Open the app, sign in to Kimi and select your project folder.
 
-## Install and upgrade
+> The HAP needs your own signature before installation. It supports **HarmonyOS PC / 2in1, API 26** only; phones and tablets are not supported. Model access requires your own Kimi account and an available service plan.
 
-Download the `*-release-unsigned.hap`, `SHA256SUMS` and installation instructions from this repository's GitHub Releases. Verify the checksum, then sign and install with a tool supporting HarmonyOS PC bundled executables. The profile must contain the requested JIT and persistent-file-access ACL permissions. See [INSTALL.md](docs/INSTALL.md).
+`SHA256SUMS` is an **optional checksum list**, not an installation dependency. If you want to check that your download is intact, see the [verification instructions](docs/INSTALL.md).
 
-Keep the same certificate for upgrades and install in place. If a signature mismatch occurs, recover the original certificate first. Uninstalling removes sandboxed login state, sessions and workspace files.
+## What you can do
 
-## Features and limitations
+- Chat with Kimi Code and work on code and project files in a dedicated window.
+- Choose a local project folder, upload files, search sessions and export conversations.
+- Use the bundled Python, Git and ripgrep through Kimi's Shell tool.
+- Switch folders, restart the service or view logs from the toolbar.
 
-- Starts the bundled Kimi Web service and opens it in ArkWeb; login authorization and external links use the system browser.
-- Session search, uploads, session ZIP export, blob previews and downloads.
-- Python 3.14.6, Git 2.55.0 and ripgrep 13.0.0 for agent tools.
-- Workspace picker, service restart, log viewer and debug switch.
-- Search workers run in isolated Node processes; startup, restart and shutdown are serialized.
-- Bounded, rotating logs with shared credential redaction.
+## Before you start
 
-The Web terminal is unavailable because the device sandbox denies PTY access; use the Shell tool. Session ZIP/blob downloads are limited to **32 MiB**. Background operation, file access and model connectivity depend on system permissions, signing profiles and the user's own account. Diagnostic logs may still contain personal paths or conversation content.
+| Item | Current status |
+| --- | --- |
+| Web terminal | Unavailable; use Kimi's Shell tool to run commands |
+| File exports | Session ZIPs and browser-generated files are limited to 32 MiB per download |
+| Upgrades | Keep the same signing certificate and install in place; uninstalling removes the app's login state and sessions |
 
-## Build and test
+This is a public preview tested on a MOR-M1 running API 26. Other devices, fresh installations and extended use still need further testing. See the [validation record](docs/RELEASE-VALIDATION.md) for the exact coverage.
 
-The full HAP build has been validated on macOS Apple Silicon with DevEco CLT 26, JDK 17, Node ≥22.19 and Python 3. See the [build guide](docs/RELEASING.md) for all prerequisites.
+Found a problem? [Open an issue](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml) with your system version, signing tool and steps to reproduce it. Remove credentials and private conversations from logs before attaching them.
+
+## Build from source
+
+Full builds have been validated on macOS Apple Silicon with DevEco Command Line Tools 26. After setting up the prerequisites, run this from the project directory:
 
 ```bash
-npm ci --ignore-scripts
-npm run check
-bash scripts/fetch-test-upstream.sh
-KIMI_REQUIRE_UPSTREAM=1 npm test
-
 KIMI_UNSIGNED_ONLY=1 scripts/build.sh release
-python3 scripts/prepare-release.py dist/KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap
 ```
 
-For your own signed installation, run `scripts/setup-signing.sh` once, then `scripts/build.sh release` and `scripts/install.sh`. Existing signing material is reused; public release attachments exclude it.
-
-Regression tests cover the real upstream search worker, repeated database opening/closing, concurrent workers, process termination, lifecycle races, file cleanup and limits, bridge origins and redaction across log chunks. GitHub CI runs on Node 22.19 / 24. HAP builds additionally validate ArkTS/C++ compilation, archive integrity, runtime hashes, ELF permissions and accidental private files. See the [validation record](docs/RELEASE-VALIDATION.md) for the actual tested scope.
-
-## Implementation
-
-ArkTS manages a local service through a native process host. Bundled executables inherit app permissions via their ELF permission sections. Kimi assets and Python standard libraries are installed from resfile resources. Compatibility code lives in `runtime/` and `entry/src/main/cpp/compat/`; versions and checksums are pinned in `scripts/versions.env`.
+The [build guide](docs/RELEASING.md) covers prerequisites, signing and tests. For implementation details, see the [project guide](CLAUDE.md) and [HarmonyOS porting notes](docs/HARMONYOS-NOTES.md).
 
 ## Contributors and AI assistance
 
-The maintainer leads the project with development assistance from these AI tools:
+Maintained by [@TranswarpDrive](https://github.com/TranswarpDrive), with development assistance from:
 
-- **Claude (Anthropic)**: assisted with the initial port and development.
-- **kimi-k3**: continued development and improvements.
-- **[Codex (OpenAI)](https://github.com/codex)**: assisted with 0.2.0 stability fixes, regression tests, build and release improvements, and GitHub release verification.
+- **Claude (Anthropic)**: the initial port and project setup.
+- **kimi-k3**: subsequent feature improvements.
+- **[Codex (OpenAI)](https://github.com/codex)**: stability fixes, tests and release improvements for 0.2.0.
 
-## Licensing and feedback
+## License
 
-The wrapper uses the [MIT license](LICENSE); bundled components keep their own [licenses](THIRD-PARTY-NOTICES.md). This project is not affiliated with or maintained by Moonshot AI or Huawei.
-
-Report reproducible issues using the repository's Bug report template. Never upload certificates, profiles, tokens or personal session archives.
+The project code uses the [MIT license](LICENSE). Bundled components keep their own [licenses](THIRD-PARTY-NOTICES.md). This is a community port, not an official Moonshot AI or Huawei project.

@@ -2,9 +2,16 @@
 
 适用于 **HarmonyOS PC（2in1）、API 26**。不支持手机、平板及旧版 HarmonyOS。应用内置 Kimi Code 2.2.0；使用模型还需要自己的 Kimi 账号和可用服务。
 
-## 下载与校验
+## 下载
 
-从本仓库的 GitHub Releases 下载 `*-release-unsigned.hap` 和 `SHA256SUMS`。这是未签名安装包，需要使用接收方自己的华为开发者账号签名后侧载，不能直接双击安装。
+从 [GitHub Releases](https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.0) 下载 `*-release-unsigned.hap`，**只需要这一个文件**。这是未签名安装包，需要用自己的华为开发者账号签名后安装。
+
+`SHA256SUMS` 仅用于可选的完整性校验，不参与签名或安装。
+
+<details>
+<summary>可选：检查下载文件是否完整</summary>
+
+在发布页查看 `SHA256SUMS`，或下载这份校验清单，再与本地计算的结果对比。
 
 macOS 在下载目录中运行：
 
@@ -13,6 +20,8 @@ shasum -a 256 KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap
 ```
 
 Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径> -Algorithm SHA256`。将结果与 `SHA256SUMS` 中对应文件的一行核对。下载完整的全部附件后，也可运行 `shasum -a 256 -c SHA256SUMS`。
+
+</details>
 
 ## 首次安装
 
@@ -50,6 +59,6 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 
 ## English
 
-Requires a HarmonyOS **PC / 2in1, API 26**. Download the `release-unsigned.hap` and verify its SHA-256 against `SHA256SUMS`. Sign it with your own Huawei developer certificate and a profile for your device, using a tool that signs bundled ELF executables. The profile must include the requested JIT and persistent-file-access ACL permissions.
+Requires a HarmonyOS **PC / 2in1, API 26**. You only need to download the `release-unsigned.hap`. Checking its SHA-256 against `SHA256SUMS` is optional. Sign the HAP with your own Huawei developer certificate and a profile for your device, using a tool that signs bundled ELF executables. The profile must include the requested JIT and persistent-file-access ACL permissions.
 
-Keep the same certificate when upgrading and install in place. Uninstalling deletes sandboxed login state, sessions and workspace files. The Web terminal is unavailable; use the Shell tool. Blob/session ZIP downloads are limited to 32 MiB. See `VALIDATION.md` for the exact tested scope.
+Keep the same certificate when upgrading and install in place. Uninstalling deletes sandboxed login state, sessions and workspace files. The Web terminal is unavailable; use the Shell tool. Blob/session ZIP downloads are limited to 32 MiB. See the [validation record](https://github.com/TranswarpDrive/kimi-code-hmos/blob/v0.2.0/docs/RELEASE-VALIDATION.md) for the exact tested scope.

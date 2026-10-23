@@ -1,73 +1,64 @@
-# Kimi Code for HarmonyOS PC（非官方外壳）
+<div align="center">
+  <img src="entry/src/main/resources/base/media/startIcon.png" width="88" alt="Kimi Code 图标" />
+  <h1>Kimi Code for HarmonyOS PC</h1>
+  <p>在鸿蒙电脑上使用 Kimi Code。</p>
+  <p>
+    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.0">下载 v0.2.0</a> ·
+    <a href="docs/INSTALL.md">安装教程</a> ·
+    <a href="README.en.md">English</a>
+  </p>
+  <p>公开测试版 · HarmonyOS PC / API 26 · MIT</p>
+</div>
 
-[English](README.en.md) · [安装与升级](docs/INSTALL.md) · [构建与发布](docs/RELEASING.md) · [版本验证记录](docs/RELEASE-VALIDATION.md)
-
-将官方 [Kimi Code](https://www.kimi.com/code) 的 Web UI 打包为鸿蒙 PC 应用：内置 Node、Kimi Code、Python、Git 和 ripgrep，启动后即可在应用窗口中登录和使用。
-
-**当前版本 0.2.0，面向 HarmonyOS PC（2in1）、API 26 的公开测试。** 不支持手机和平板。发布附件为未签名 HAP，接收方需要用自己的华为开发者账号签名后侧载；不是 AppGallery 应用，也不能免签直接安装。具体已验证和未覆盖范围见[验证记录](docs/RELEASE-VALIDATION.md)。
+这是 [Kimi Code](https://www.kimi.com/code) 的非官方鸿蒙 PC 移植版。它把 Kimi Code 的网页界面和运行环境打包成一个独立应用，让你在自己的项目目录中使用 Kimi Code，无需额外安装 Node、Python 或 Git。
 
 ## 下载与安装
 
-在本仓库 GitHub Releases 下载 `*-release-unsigned.hap`、`SHA256SUMS` 和安装说明。校验文件后，用支持鸿蒙 PC 随包二进制签名的工具给自己的设备签名安装。Profile 需要包含 JIT 与目录持久访问 ACL，详见[安装说明](docs/INSTALL.md)。
+1. **[下载 HAP 安装包](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.2.0/KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap)**，只需要这一个文件。
+2. 用支持鸿蒙 PC 的签名工具，为自己的设备签名、安装。具体步骤见[安装教程](docs/INSTALL.md)。
+3. 打开应用，登录 Kimi 账号，选择项目文件夹后即可开始使用。
 
-升级时沿用原证书并覆盖安装，以保留登录和会话。签名不一致时先找回原证书；卸载会清除应用沙箱数据。
+> 安装包需要自行签名才能安装。目前仅支持 **API 26 的鸿蒙 PC（2in1）**，暂不支持手机和平板。使用模型需要自己的 Kimi 账号及可用服务。
 
-## 功能与边界
+发布页里的 `SHA256SUMS` 是**可选的文件校验清单**，不参与签名或安装。想确认下载是否完整，可以按[校验方法](docs/INSTALL.md)核对。
 
-- 内置 `kimi web`，ArkWeb 展示上游 Web UI；登录授权及外部链接交给系统浏览器。
-- 支持会话搜索、文件上传、会话 ZIP 导出、blob 文件预览与保存。
-- 内置 Python 3.14.6、Git 2.55.0、ripgrep 13.0.0，供 Shell 等工具使用。
-- 工具栏提供工作目录选择、服务重启、日志查看和关闭调试。
-- 搜索在独立 Node 子进程中运行，服务操作串行处理；关闭应用清理服务进程组。
-- 日志限制大小并轮转，界面和系统日志统一脱敏。
+## 可以做什么
 
-已知限制：网页终端需要的 PTY 被设备沙箱禁止；可使用 Shell 工具执行命令。会话 ZIP/blob 下载上限为 **32 MiB**。后台运行、目录访问和模型联网分别依赖系统权限、签名 Profile 与用户账号。调试日志仍可能包含个人路径或对话内容，反馈前请检查。
+- 在独立窗口中与 Kimi Code 对话，处理代码和项目文件。
+- 选择本地项目目录，上传文件、搜索会话、导出会话记录。
+- 使用内置的 Python、Git 和 ripgrep，供 Kimi 的 Shell 工具调用。
+- 在顶部工具栏切换目录、重启服务或查看日志。
+
+## 使用前了解
+
+| 项目 | 当前情况 |
+| --- | --- |
+| 网页终端 | 暂不可用，可以通过 Kimi 的 Shell 工具运行命令 |
+| 文件导出 | 会话 ZIP 和网页生成的文件，单次保存上限为 32 MiB |
+| 升级安装 | 沿用原签名证书并覆盖安装；卸载会清除应用内的登录和会话 |
+
+这是公开测试版，已在 MOR-M1 / API 26 上做过真机测试。其他设备、首次安装和长时间运行仍需进一步验证，具体测试内容见[验证记录](docs/RELEASE-VALIDATION.md)。
+
+遇到问题可以[提交反馈](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml)，说明系统版本、签名工具和复现步骤。附日志前，请先遮住账号凭据和个人对话。
 
 ## 从源码构建
 
-已验证构建环境为 macOS Apple Silicon、DevEco Command Line Tools 26、JDK 17、Node ≥22.19、Python 3。完整工具清单和模拟器边界见[构建说明](docs/RELEASING.md)。
+完整构建目前在 macOS Apple Silicon + DevEco Command Line Tools 26 上验证。准备好环境后，在项目目录运行：
 
 ```bash
-# 无签名材料也能构建分发包
 KIMI_UNSIGNED_ONLY=1 scripts/build.sh release
-
-# 生成可用于 GitHub Release 的附件目录
-python3 scripts/prepare-release.py dist/KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap
 ```
 
-需要自用安装时，首次运行 `scripts/setup-signing.sh`，以后直接 `scripts/build.sh release` 和 `scripts/install.sh`。脚本使用已有本地签名，签名材料不会进入公开附件。
-
-## 测试
-
-```bash
-npm ci --ignore-scripts
-npm run check
-bash scripts/fetch-test-upstream.sh
-KIMI_REQUIRE_UPSTREAM=1 npm test
-```
-
-测试涵盖真实上游搜索索引的连续打开/关闭、并发 worker、进程终止、重启竞争、后台任务、文件失败清理、下载限制、原生桥来源和日志脱敏。GitHub CI 在 Node 22.19 / 24 上运行；完整构建另检查 ArkTS/C++ 编译、运行时清单、ELF 权限、包完整性和意外签名文件。实际结果见[版本验证记录](docs/RELEASE-VALIDATION.md)。
-
-## 实现
-
-- ArkTS + ArkWeb 外壳，NAPI 负责启动和回收随包进程。
-- Node、Python、Git 等 ELF 放在 `libs/` 中签名，通过 `.permission` 节继承应用权限。
-- Kimi 包与 Python 标准库放在 `resfile/`，安装时解压成真实文件。
-- `libkimicompat.so` 处理沙箱 syscall 限制；`runtime/` 提供搜索子进程和兼容补丁。
-- 依赖版本和哈希由 `scripts/versions.env` 锁定。升级时须重新跑上游协议测试和真机验收。
-
-平台历史、架构和开发约定见 [CLAUDE.md](CLAUDE.md)、[HARMONYOS-NOTES.md](docs/HARMONYOS-NOTES.md)。
+环境配置、自用签名和测试方法见[构建与发布](docs/RELEASING.md)。想了解实现，可以从[项目结构](CLAUDE.md)和[鸿蒙适配笔记](docs/HARMONYOS-NOTES.md)看起。
 
 ## 贡献者与 AI 协作
 
-本项目由维护者推进，以下 AI 工具参与开发协作：
+维护者：[@TranswarpDrive](https://github.com/TranswarpDrive)。参与开发的 AI 工具包括：
 
-- **Claude（Anthropic）**：协助早期移植与开发。
-- **kimi-k3**：接续开发与完善。
-- **[Codex（OpenAI）](https://github.com/codex)**：协助完成 0.2.0 的稳定性修复、回归测试、构建与发布流程完善，以及 GitHub 发布验证。
+- **Claude（Anthropic）**：早期移植与工程搭建。
+- **kimi-k3**：后续功能完善。
+- **[Codex（OpenAI）](https://github.com/codex)**：0.2.0 的稳定性修复、测试和发布流程完善。
 
-## 许可与反馈
+## 许可
 
-外壳代码采用 [MIT](LICENSE)，内置组件采用各自许可证，见[第三方说明](THIRD-PARTY-NOTICES.md)。本项目与 Moonshot AI、华为无隶属或官方维护关系。
-
-请通过仓库的 Bug report 模板提供版本、环境、步骤和脱敏日志。不要上传签名材料、token 或完整个人会话。
+本项目代码采用 [MIT](LICENSE) 许可，内置组件遵循各自的[第三方许可](THIRD-PARTY-NOTICES.md)。这是社区移植项目，与 Moonshot AI、华为无隶属或官方维护关系。

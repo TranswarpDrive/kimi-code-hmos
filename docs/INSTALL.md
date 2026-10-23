@@ -4,7 +4,7 @@
 
 ## 下载
 
-从 [GitHub Releases](https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.0) 下载 `*-release-unsigned.hap`，**只需要这一个文件**。这是未签名安装包，需要用自己的华为开发者账号签名后安装。
+从 [GitHub Releases](https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.1) 下载 `*-release-unsigned.hap`，**只需要这一个文件**。这是未签名安装包，需要用自己的华为开发者账号签名后安装。
 
 `SHA256SUMS` 仅用于可选的完整性校验，不参与签名或安装。
 
@@ -16,7 +16,7 @@
 macOS 在下载目录中运行：
 
 ```bash
-shasum -a 256 KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap
+shasum -a 256 KimiCode-hmos-0.2.1-kimi2.2.0-release-unsigned.hap
 ```
 
 Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径> -Algorithm SHA256`。将结果与 `SHA256SUMS` 中对应文件的一行核对。下载完整的全部附件后，也可运行 `shasum -a 256 -c SHA256SUMS`。
@@ -48,7 +48,7 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 |---|---|
 | 设备类型/API 不支持 | 确认是鸿蒙 PC 2in1、API 26；模拟器专用包不用于分发 |
 | 安装提示 ACL、Profile 或代码签名错误 | 检查 Profile 绑定的设备、上述 ACL，以及工具是否给所有随包 ELF 签名 |
-| 启动失败、信号退出 | 打开“查看日志”；检查 JIT ACL。0.2.0 不再把无法联网的 jitless 模式显示为可用 |
+| 启动失败、信号退出 | 打开“查看日志”；检查 JIT ACL。0.2.1 不再把无法联网的 jitless 模式显示为可用 |
 | 工作目录无法访问 | 重新选择目录并授权；冷启动恢复授权失败时会提示并使用默认目录 |
 | 保存下载失败 | 检查“下载”目录权限和剩余空间。会话 ZIP、blob 下载上限 32 MiB，超限请缩小导出范围 |
 | 搜索暂时没有结果 | 首次建立索引可能需要时间；仍失败时查看日志并重启服务 |
@@ -61,4 +61,4 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 
 Requires a HarmonyOS **PC / 2in1, API 26**. You only need to download the `release-unsigned.hap`. Checking its SHA-256 against `SHA256SUMS` is optional. Sign the HAP with your own Huawei developer certificate and a profile for your device, using a tool that signs bundled ELF executables. The profile must include the requested JIT and persistent-file-access ACL permissions.
 
-Keep the same certificate when upgrading and install in place. Uninstalling deletes sandboxed login state, sessions and workspace files. The Web terminal is unavailable; use the Shell tool. Blob/session ZIP downloads are limited to 32 MiB. See the [validation record](https://github.com/TranswarpDrive/kimi-code-hmos/blob/v0.2.0/docs/RELEASE-VALIDATION.md) for the exact tested scope.
+Keep the same certificate when upgrading and install in place. Uninstalling deletes sandboxed login state, sessions and workspace files. The Web terminal is unavailable; use the Shell tool. Blob/session ZIP downloads are limited to 32 MiB. See the [validation record](https://github.com/TranswarpDrive/kimi-code-hmos/blob/v0.2.1/docs/RELEASE-VALIDATION.md) for the exact tested scope.

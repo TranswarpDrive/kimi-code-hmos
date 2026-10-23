@@ -19,7 +19,7 @@ npm run check
 bash scripts/fetch-test-upstream.sh
 KIMI_REQUIRE_UPSTREAM=1 npm test
 scripts/build.sh release
-scripts/install.sh dist/KimiCode-hmos-0.2.0-kimi2.2.0-release-signed.hap
+scripts/install.sh dist/KimiCode-hmos-0.2.1-kimi2.2.0-release-signed.hap
 ```
 
 首次自用签名可运行 `scripts/setup-signing.sh`（需要 devecocli 和自己的华为账号）。已有签名配置时日常升级直接构建、安装，不必重新生成。构建是否签名取决于本地配置，和设备是否连接无关。
@@ -30,10 +30,10 @@ scripts/install.sh dist/KimiCode-hmos-0.2.0-kimi2.2.0-release-signed.hap
 
 ```bash
 KIMI_UNSIGNED_ONLY=1 scripts/build.sh release
-python3 scripts/prepare-release.py dist/KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap
+python3 scripts/prepare-release.py dist/KimiCode-hmos-0.2.1-kimi2.2.0-release-unsigned.hap
 ```
 
-输出为 `dist/release-0.2.0/`，只含未签名 HAP、安装说明、变更记录、验证范围、许可证说明、机器可读版本信息与 `SHA256SUMS`。整理脚本拒绝 debug 包、版本不匹配的旧包和已存在的发布目录。
+输出为 `dist/release-0.2.1/`，只含未签名 HAP、安装说明、变更记录、验证范围、许可证说明、机器可读版本信息与 `SHA256SUMS`。整理脚本拒绝 debug 包、版本不匹配的旧包和已存在的发布目录。
 
 `verify-hap.py` 校验 ZIP 完整性、重复/危险路径、意外签名材料、API/设备类型、ELF 架构与权限节、关键运行时哈希和 Python 模块。它验证包结构，不能替代实际设备运行。
 

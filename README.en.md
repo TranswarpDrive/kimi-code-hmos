@@ -3,7 +3,7 @@
   <h1>Kimi Code for HarmonyOS PC</h1>
   <p>Use Kimi Code on your HarmonyOS computer.</p>
   <p>
-    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.0">Download v0.2.0</a> ·
+    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.1">Download v0.2.1</a> ·
     <a href="docs/INSTALL.md">Installation guide</a> ·
     <a href="README.md">中文</a>
   </p>
@@ -14,7 +14,7 @@ An unofficial HarmonyOS PC port of [Kimi Code](https://www.kimi.com/code). It bu
 
 ## Download and install
 
-1. **[Download the HAP](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.2.0/KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap)**. This is the only file you need to download.
+1. **[Download the HAP](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.2.1/KimiCode-hmos-0.2.1-kimi2.2.0-release-unsigned.hap)**. This is the only file you need to download.
 2. Sign it for your own device with a tool that supports HarmonyOS PC apps, then install it. Follow the [installation guide](docs/INSTALL.md) for the required signing settings.
 3. Open the app, sign in to Kimi and select your project folder.
 
@@ -37,7 +37,7 @@ An unofficial HarmonyOS PC port of [Kimi Code](https://www.kimi.com/code). It bu
 | File exports | Session ZIPs and browser-generated files are limited to 32 MiB per download |
 | Upgrades | Keep the same signing certificate and install in place; uninstalling removes the app's login state and sessions |
 
-This is a public preview tested on a MOR-M1 running API 26. Other devices, fresh installations and extended use still need further testing. See the [validation record](docs/RELEASE-VALIDATION.md) for the exact coverage.
+This is a public preview. Version 0.2.0 was tested on a MOR-M1 running API 26; the 0.2.1 icon update has passed build and automated checks but has not been retested on a device. Other devices, fresh installations and extended use still need further testing. See the [validation record](docs/RELEASE-VALIDATION.md) for the exact coverage.
 
 Found a problem? [Open an issue](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml) with your system version, signing tool and steps to reproduce it. Remove credentials and private conversations from logs before attaching them.
 
@@ -57,7 +57,7 @@ Maintained by [@TranswarpDrive](https://github.com/TranswarpDrive), with develop
 
 - **Claude (Anthropic)**: the initial port and project setup.
 - **kimi-k3**: subsequent feature improvements.
-- **[Codex (OpenAI)](https://github.com/codex)**: stability fixes, tests and release improvements for 0.2.0.
+- **[Codex (OpenAI)](https://github.com/codex)**: stability fixes, tests and release improvements for 0.2.1.
 
 ## License
 

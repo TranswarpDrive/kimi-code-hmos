@@ -3,7 +3,7 @@
   <h1>Kimi Code for HarmonyOS PC</h1>
   <p>在鸿蒙电脑上使用 Kimi Code。</p>
   <p>
-    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.0">下载 v0.2.0</a> ·
+    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.1">下载 v0.2.1</a> ·
     <a href="docs/INSTALL.md">安装教程</a> ·
     <a href="README.en.md">English</a>
   </p>
@@ -14,7 +14,7 @@
 
 ## 下载与安装
 
-1. **[下载 HAP 安装包](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.2.0/KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap)**，只需要这一个文件。
+1. **[下载 HAP 安装包](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.2.1/KimiCode-hmos-0.2.1-kimi2.2.0-release-unsigned.hap)**，只需要这一个文件。
 2. 用支持鸿蒙 PC 的签名工具，为自己的设备签名、安装。具体步骤见[安装教程](docs/INSTALL.md)。
 3. 打开应用，登录 Kimi 账号，选择项目文件夹后即可开始使用。
 
@@ -37,7 +37,7 @@
 | 文件导出 | 会话 ZIP 和网页生成的文件，单次保存上限为 32 MiB |
 | 升级安装 | 沿用原签名证书并覆盖安装；卸载会清除应用内的登录和会话 |
 
-这是公开测试版，已在 MOR-M1 / API 26 上做过真机测试。其他设备、首次安装和长时间运行仍需进一步验证，具体测试内容见[验证记录](docs/RELEASE-VALIDATION.md)。
+这是公开测试版。0.2.0 已在 MOR-M1 / API 26 上做过真机测试；0.2.1 的图标更新已通过构建和自动化检查，尚未重复真机验收。其他设备、首次安装和长时间运行仍需进一步验证，详见[验证记录](docs/RELEASE-VALIDATION.md)。
 
 遇到问题可以[提交反馈](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml)，说明系统版本、签名工具和复现步骤。附日志前，请先遮住账号凭据和个人对话。
 
@@ -57,7 +57,7 @@ KIMI_UNSIGNED_ONLY=1 scripts/build.sh release
 
 - **Claude（Anthropic）**：早期移植与工程搭建。
 - **kimi-k3**：后续功能完善。
-- **[Codex（OpenAI）](https://github.com/codex)**：0.2.0 的稳定性修复、测试和发布流程完善。
+- **[Codex（OpenAI）](https://github.com/codex)**：0.2.1 的稳定性修复、测试和发布流程完善。
 
 ## 许可
 

@@ -6,7 +6,10 @@ const { ProcessWorker } = require('../runtime/process-worker.cjs');
 const entry = path.join(__dirname, 'fixtures/worker.mjs');
 const message = worker => once(worker, 'message', { signal: AbortSignal.timeout(5000) }).then(([value]) => value);
 
-test('worker can be rebuilt repeatedly with independent data and ESM imports', async () => {
+test('worker can be rebuilt repeatedly with independent data and ESM imports', { timeout: 20000 }, async t => {
+  // 模拟实际宿主的 HTTP 服务；unref 后不能依赖测试框架替我们保活（Node 22 会提前结束）。
+  const hostHandle = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(hostHandle));
   for (let i = 0; i < 3; i++) {
     const worker = new ProcessWorker(entry, { execArgv: [], workerData: { id: i } });
     try {

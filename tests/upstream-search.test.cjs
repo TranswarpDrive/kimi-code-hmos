@@ -10,7 +10,10 @@ const entry = path.resolve(__dirname, '../vendor/kimi-code/package/dist/search-w
 const available = fs.existsSync(entry);
 if (!available && process.env.KIMI_REQUIRE_UPSTREAM === '1') throw new Error('Fetch the pinned runtime before the upstream acceptance test');
 
-test('pinned upstream search: index content, query, close, and reopen the same database', { skip: !available, timeout: 30000 }, async () => {
+test('pinned upstream search: index content, query, close, and reopen the same database', { skip: !available, timeout: 30000 }, async t => {
+  // 真实应用有 HTTP 服务保活；这里显式模拟它，避免 Node 22 在等待 unref worker 时退出。
+  const hostHandle = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(hostHandle));
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'kimi-hmos-search-'));
   try {
     const session = path.join(directory, 'session');

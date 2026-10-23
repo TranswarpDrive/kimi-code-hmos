@@ -30,6 +30,12 @@
 
 # 本地签名配置（含本机证书路径与加密口令），由 scripts/setup-signing.sh 生成
 /signing/*.local.json
+*.p12
+*.p7b
+*.jks
+*.keystore
+*.pem
+*.key
 
 # Claude / Kimi Code 会话工作树
 .claude/

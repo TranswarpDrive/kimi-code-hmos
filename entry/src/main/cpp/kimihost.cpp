@@ -13,12 +13,15 @@
 #include <algorithm>
 #include <cerrno>
 #include <csignal>
+#include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <string>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -33,6 +36,53 @@ namespace {
 
 constexpr int kMaxFdToClose = 65536;
 constexpr int kExecFailedExitCode = 127;
+constexpr off_t kLogLimit = 4 * 1024 * 1024;
+
+// 子进程输出由原生线程排空并轮转，避免常驻调试把磁盘写满或在 UI 线程搬运大文件。
+void DrainLog(int readFd, int logFd, std::string logPath)
+{
+    struct stat st {};
+    off_t size = logFd >= 0 && fstat(logFd, &st) == 0 ? st.st_size : 0;
+    char buffer[16384];
+    while (true) {
+        ssize_t count = read(readFd, buffer, sizeof(buffer));
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        if (logFd < 0) continue;
+        if (size + count > kLogLimit) {
+            close(logFd);
+            (void)rename(logPath.c_str(), (logPath + ".1").c_str());
+            logFd = open(logPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC, 0600);
+            size = 0;
+            if (logFd < 0) continue;
+        }
+        ssize_t written = 0;
+        while (written < count) {
+            ssize_t n = write(logFd, buffer + written, static_cast<size_t>(count - written));
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) break;
+            written += n;
+            size += n;
+        }
+    }
+    close(readFd);
+    if (logFd >= 0) close(logFd);
+}
+
+bool GroupAlive(pid_t pid)
+{
+    return pid > 0 && (kill(-pid, 0) == 0 || errno == EPERM || kill(pid, 0) == 0 || errno == EPERM);
+}
+
+void TerminateGroup(pid_t pid, int graceMs)
+{
+    if (kill(-pid, SIGTERM) != 0) (void)kill(pid, SIGTERM);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(graceMs);
+    while (GroupAlive(pid) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (GroupAlive(pid) && kill(-pid, SIGKILL) != 0) (void)kill(pid, SIGKILL);
+}
 
 struct ExitEvent {
     pid_t pid;
@@ -146,9 +196,9 @@ void WriteErrnoLine(const char *prefix, int err)
         }
     }
 
-    // 独立会话，进程组 id = pid；应用进程（父线程）退出时子进程收到 SIGTERM
+    // 独立会话，进程组 id = pid；应用进程被强杀时服务不能依赖 JS 信号回调才能退出。
     setsid();
-    prctl(PR_SET_PDEATHSIG, SIGTERM);
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
     if (getppid() != parentPid) {
         _exit(0);
     }
@@ -169,6 +219,7 @@ void WriteErrnoLine(const char *prefix, int err)
 
     if (cwd != nullptr && cwd[0] != '\0' && chdir(cwd) != 0) {
         WriteErrnoLine("[kimihost] chdir failed, errno=", errno);
+        _exit(kExecFailedExitCode);
     }
     execve(file, argv, envp);
     WriteErrnoLine("[kimihost] execve failed, errno=", errno);
@@ -287,6 +338,13 @@ napi_value Spawn(napi_env env, napi_callback_info info)
         }
     }
 
+    int logPipe[2];
+    if (pipe2(logPipe, O_CLOEXEC) != 0) {
+        if (logFd >= 0) close(logFd);
+        if (tsfn != nullptr) napi_release_threadsafe_function(tsfn, napi_tsfn_abort);
+        return ThrowError(env, "spawn: failed to create log pipe");
+    }
+
     struct rlimit limit;
     int maxFd = 1024;
     if (getrlimit(RLIMIT_NOFILE, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY) {
@@ -301,13 +359,13 @@ napi_value Spawn(napi_env env, napi_callback_info info)
 
     pid_t pid = fork();
     if (pid == 0) {
-        ExecChild(file.c_str(), cArgs.data(), cEnvs.data(), cwdPtr, logFd, maxFd, parentPid);
+        ExecChild(file.c_str(), cArgs.data(), cEnvs.data(), cwdPtr, logPipe[1], maxFd, parentPid);
     }
     int forkErrno = errno;
-    if (logFd >= 0) {
-        close(logFd);
-    }
+    close(logPipe[1]);
     if (pid < 0) {
+        close(logPipe[0]);
+        if (logFd >= 0) close(logFd);
         if (tsfn != nullptr) {
             napi_release_threadsafe_function(tsfn, napi_tsfn_abort);
         }
@@ -315,6 +373,7 @@ napi_value Spawn(napi_env env, napi_callback_info info)
     }
 
     OH_LOG_INFO(LOG_APP, "spawned %{public}s pid=%{public}d", file.c_str(), pid);
+    std::thread(DrainLog, logPipe[0], logFd, logPath).detach();
     std::thread(WatchChild, pid, tsfn).detach();
 
     napi_value result = nullptr;
@@ -369,6 +428,30 @@ napi_value IsAlive(napi_env env, napi_callback_info info)
     return result;
 }
 
+napi_value IsGroupAlive(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    const int pid = argc > 0 ? ReadInt32Arg(env, argv[0], 0) : 0;
+    napi_value result = nullptr;
+    napi_get_boolean(env, GroupAlive(pid), &result);
+    return result;
+}
+
+napi_value Terminate(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    const int pid = argc > 0 ? ReadInt32Arg(env, argv[0], 0) : 0;
+    const int graceMs = argc > 1 ? std::clamp(ReadInt32Arg(env, argv[1], 4000), 0, 10000) : 4000;
+    if (pid > 0) std::thread(TerminateGroup, pid, graceMs).detach();
+    napi_value result = nullptr;
+    napi_get_undefined(env, &result);
+    return result;
+}
+
 } // namespace
 
 EXTERN_C_START
@@ -378,6 +461,8 @@ static napi_value Init(napi_env env, napi_value exports)
         {"spawn", nullptr, Spawn, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"kill", nullptr, Kill, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isAlive", nullptr, IsAlive, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"isGroupAlive", nullptr, IsGroupAlive, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"terminate", nullptr, Terminate, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeLibDir", nullptr, NativeLibDir, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

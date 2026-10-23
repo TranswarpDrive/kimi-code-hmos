@@ -1,5 +1,7 @@
 # 鸿蒙PC 平台笔记
 
+> 下文保留 0.1.0 的平台调查与试验记录。0.2.0 已用独立搜索子进程替换主线程内联，移除非原子硬链接回退和 jitless 自动重试。当前发布验证见 [RELEASE-VALIDATION.md](RELEASE-VALIDATION.md)，不要将历史现象当作新版验收结果。
+
 开发本项目时查证过的事实与出处。“真机实测”一节来自 MOR-M1（HarmonyOS 7.0.0.111，API 26，HongMeng Kernel 1.13.0）。
 
 ## Kimi Code CLI / Web

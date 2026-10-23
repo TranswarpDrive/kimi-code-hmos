@@ -9,7 +9,7 @@
  */
 
 export const BRIDGE_NAME: string = 'kimiHost';
-export const BRIDGE_METHODS: string[] = ['openExternal', 'downloadBlob', 'shellInfo'];
+export const BRIDGE_METHODS: string[] = ['openExternal', 'downloadBlob', 'downloadError', 'shellInfo'];
 
 export type BlobDownloadHandler = (name: string, base64: string) => void;
 
@@ -17,11 +17,14 @@ export class KimiHostBridge {
   private onOpenExternal: (url: string) => void;
   private onDownloadBlob: BlobDownloadHandler;
   private info: string;
+  private onDownloadError: (message: string) => void;
 
-  constructor(onOpenExternal: (url: string) => void, onDownloadBlob: BlobDownloadHandler, info: string) {
+  constructor(onOpenExternal: (url: string) => void, onDownloadBlob: BlobDownloadHandler, info: string,
+    onDownloadError: (message: string) => void) {
     this.onOpenExternal = onOpenExternal;
     this.onDownloadBlob = onDownloadBlob;
     this.info = info;
+    this.onDownloadError = onDownloadError;
   }
 
   openExternal(url: string): void {
@@ -35,10 +38,24 @@ export class KimiHostBridge {
   shellInfo(): string {
     return this.info;
   }
+
+  downloadError(message: string): void {
+    this.onDownloadError(String(message).substring(0, 200));
+  }
+}
+
+export function bridgePermission(port: number): string {
+  return '{"javascriptProxyPermission":{"urlPermissionList":[{"scheme":"http","host":"127.0.0.1",' +
+    `"port":"${port}","path":""}]}}`;
+}
+
+export function documentStartScript(origin: string): string {
+  return DOCUMENT_START_SCRIPT.replace('__KIMI_TRUSTED_ORIGIN__', JSON.stringify(origin));
 }
 
 export const DOCUMENT_START_SCRIPT: string = `
 (function () {
+  if (window.top !== window || location.origin !== __KIMI_TRUSTED_ORIGIN__) { return; }
   if (window.__kimiHmosShell) { return; }
   window.__kimiHmosShell = true;
   var ORIGIN = location.origin;
@@ -82,17 +99,28 @@ export const DOCUMENT_START_SCRIPT: string = `
     }
     return '';
   }
+  var blobDownloadPending = false;
   function downloadBlob(url, name) {
     var host = window.${BRIDGE_NAME};
     if (!host || typeof host.downloadBlob !== 'function') {
       console.warn('[kimi-hmos] bridge not ready, cannot download blob');
       return;
     }
+    if (blobDownloadPending) { host.downloadError('已有文件正在读取，请稍后重试'); return; }
+    blobDownloadPending = true;
+    function fail(message) {
+      blobDownloadPending = false;
+      host.downloadError(message);
+    }
     var suggested = String(name || '').trim() || ('download-' + Date.now());
     fetch(url).then(function (response) {
       if (!response.ok) { throw new Error('HTTP ' + response.status); }
       return response.blob();
     }).then(function (blob) {
+      if (blob.size > 32 * 1024 * 1024) {
+        fail('此类文件下载最多支持 32 MiB，请减少导出范围后重试');
+        return;
+      }
       if (suggested.lastIndexOf('.') < 0) {
         var extension = blobExtension(blob.type);
         if (extension) { suggested += '.' + extension; }
@@ -102,15 +130,16 @@ export const DOCUMENT_START_SCRIPT: string = `
         var dataUrl = String(reader.result || '');
         var comma = dataUrl.indexOf(',');
         if (comma < 0) {
-          console.warn('[kimi-hmos] invalid blob data URL');
+          fail('下载数据格式不正确');
           return;
         }
         host.downloadBlob(suggested, dataUrl.substring(comma + 1));
+        blobDownloadPending = false;
       };
-      reader.onerror = function () { console.warn('[kimi-hmos] cannot read blob'); };
+      reader.onerror = function () { fail('无法读取下载文件'); };
       reader.readAsDataURL(blob);
     }).catch(function (err) {
-      console.warn('[kimi-hmos] blob download failed: ' + String(err));
+      fail('下载失败：' + String(err));
     });
   }
   function openPreview(url) {
@@ -129,6 +158,8 @@ export const DOCUMENT_START_SCRIPT: string = `
     closeButton.textContent = '关闭';
     closeButton.style.cssText = downloadButton.style.cssText;
     var frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-scripts');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.src = url;
     frame.style.cssText = 'flex:1 1 auto;width:100%;height:calc(100% - 48px);border:0;background:#fff;';
     function closePreview() {

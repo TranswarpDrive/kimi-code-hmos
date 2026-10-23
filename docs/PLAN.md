@@ -1,5 +1,8 @@
 # 计划与进度
 
+> M0–M6 是 0.1.0 的历史开发记录，包含后来被替换的硬链接回退、主线程内联搜索和 jitless 方案。
+> 0.2.0 的当前实现、验证范围与发布流程以 [CHANGELOG](../CHANGELOG.md)、[RELEASE-VALIDATION](RELEASE-VALIDATION.md)、[RELEASING](RELEASING.md) 为准。历史勾选不代表新版已经重新验收。
+
 目标：一个可侧载到鸿蒙PC 的 HAP，启动后自动拉起内置的 `kimi web`，用 ArkWeb 展示官方 Web UI；
 登录等外链跳转到系统默认浏览器。
 
@@ -72,7 +75,7 @@
 
 | 风险 | 预案 |
 |---|---|
-| 系统更新收紧 bin 权限继承 | 壳自动 `--jitless` 重试并提示；补 M6 的 fetch 兜底 |
+| 系统更新收紧 bin 权限继承 | 明确报告启动失败并检查 JIT ACL；不再用不可联网的 jitless 模式掩盖问题 |
 | 其他 kimi 功能在沙箱里触发 SIGSYS | 打开调试日志（失败页按钮），看兼容层记录的 syscall 与预加载脚本的调用追踪 |
 | 调试 Profile 一年过期（当前到 2027-10-18） | 重新运行 `scripts/setup-signing.sh default --force` |
 | 换证书后覆盖安装失败 | `hdc uninstall com.kimicodehmos.app` 后再装（会清空登录状态） |

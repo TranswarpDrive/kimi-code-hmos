@@ -6,7 +6,7 @@ import { FileActions } from '../kimi/FileActions';
 import { KimiServer, ServerPhase, ServerStatus } from '../kimi/KimiServer';
 import { Log } from '../kimi/Log';
 import { KIMI_CODE_VERSION, NODE_VERSION } from '../kimi/RuntimeInfo';
-import { BRIDGE_METHODS, BRIDGE_NAME, DOCUMENT_START_SCRIPT, KimiHostBridge } from '../kimi/WebBridge';
+import { BRIDGE_METHODS, BRIDGE_NAME, bridgePermission, documentStartScript, KimiHostBridge } from '../kimi/WebBridge';
 
 const LOG_TAIL_BYTES: number = 6000;
 
@@ -21,13 +21,16 @@ struct Index {
   @State warning: string = '';
   @State debugEnabled: boolean = false;
   @State workspace: string = '';
+  @State proxyPermission: string = '';
+  @State scripts: ScriptItem[] = [];
   private controller: webview.WebviewController = new webview.WebviewController();
   private bridge: KimiHostBridge = new KimiHostBridge((url: string) => {
     this.openOutside(url);
   }, (name: string, base64: string) => {
     this.saveBlob(name, base64);
-  }, JSON.stringify({ shell: 'kimi-code-hmos', kimi: KIMI_CODE_VERSION, node: NODE_VERSION }));
-  private scripts: ScriptItem[] = [{ script: DOCUMENT_START_SCRIPT, scriptRules: ['*'] }];
+  }, JSON.stringify({ shell: 'kimi-code-hmos', kimi: KIMI_CODE_VERSION, node: NODE_VERSION }), (message: string) => {
+    this.notify(message);
+  });
   private origin: string = '';
   private unsubscribe: (() => void) | null = null;
   private logTimer: number = -1;
@@ -70,6 +73,9 @@ struct Index {
       return;
     }
     this.origin = `http://127.0.0.1:${status.port}`;
+    this.proxyPermission = bridgePermission(status.port);
+    this.scripts = [{ script: documentStartScript(this.origin), scriptRules: [this.origin] }];
+    this.workspace = KimiServer.get().defaultWorkspace();
     const first = this.webUrl === '';
     this.webUrl = status.url;
     this.webStale = false;
@@ -92,20 +98,14 @@ struct Index {
     openExternal(this.context(), url);
   }
 
-  private isExternal(url: string): boolean {
-    if (!isOpenableExternally(url)) {
-      return false; // blob:、data:、about: 等留在 WebView 内
-    }
-    return this.origin === '' || !(url === this.origin || url.startsWith(`${this.origin}/`));
-  }
-
   private notify(message: string): void {
     this.getUIContext().getPromptAction().showToast({ message: message, duration: 3000 });
   }
 
-  private saveBlob(name: string, base64: string): void {
+  private async saveBlob(name: string, base64: string): Promise<void> {
     try {
-      const path = FileActions.saveBlobToDownloads(name, base64);
+      this.notify('正在保存文件…');
+      const path = await FileActions.saveBlobToDownloads(name, base64);
       this.notify(`下载完成：${path}`);
     } catch (err) {
       Log.warn(`save blob download failed: ${String(err)}`);
@@ -122,8 +122,7 @@ struct Index {
       this.notify(`工作目录：${selection.path}`);
     } catch (err) {
       const e = err as BusinessError;
-      if (typeof e.code === 'number') {
-        Log.warn(`workspace picker cancelled or failed (${e.code}): ${e.message}`);
+      if (e.message === '未选择工作目录') {
         return;
       }
       Log.warn(`set workspace failed: ${String(err)}`);
@@ -144,7 +143,7 @@ struct Index {
 
   private restartService(): void {
     this.logExpanded = false;
-    KimiServer.get().restart();
+    KimiServer.get().restart().catch((err: Error) => this.notify(`重启失败：${err.message}`));
   }
 
   build() {
@@ -172,7 +171,8 @@ struct Index {
               object: this.bridge,
               name: BRIDGE_NAME,
               methodList: BRIDGE_METHODS,
-              controller: this.controller
+              controller: this.controller,
+              permission: this.proxyPermission
             })
             .onControllerAttached(() => {
               this.webReady = true;
@@ -190,8 +190,10 @@ struct Index {
             })
             .onLoadIntercept((event: OnLoadInterceptEvent) => {
               const target = event.data.getRequestUrl();
-              if (event.data.isMainFrame() && this.isExternal(target)) {
-                this.openOutside(target);
+              if (event.data.isMainFrame() && target !== this.origin && !target.startsWith(`${this.origin}/`)) {
+                if (isOpenableExternally(target)) {
+                  this.openOutside(target);
+                }
                 return true;
               }
               return false;
@@ -277,6 +279,16 @@ struct Index {
           this.logExpanded = !this.logExpanded;
           this.logTail = KimiServer.get().readLogTail(LOG_TAIL_BYTES);
         })
+      if (this.debugEnabled) {
+        Button('关闭调试')
+          .fontSize(12)
+          .height(28)
+          .onClick(() => {
+            KimiServer.get().setDebugEnabled(false);
+            this.debugEnabled = false;
+            this.restartService();
+          })
+      }
     }
     .width('100%')
     .height(40)
@@ -388,7 +400,7 @@ struct Index {
         if (this.phase === ServerPhase.FAILED || this.phase === ServerPhase.IDLE) {
           Button('重新启动服务')
             .onClick(() => {
-              KimiServer.get().restart();
+              this.restartService();
             })
           Button(this.debugEnabled ? '关闭调试日志并重启' : '开启调试日志并重启')
             .type(ButtonType.Normal)
@@ -398,7 +410,7 @@ struct Index {
             .onClick(() => {
               this.debugEnabled = !this.debugEnabled;
               KimiServer.get().setDebugEnabled(this.debugEnabled);
-              KimiServer.get().restart();
+              this.restartService();
             })
         }
         Button(this.logExpanded ? '收起日志' : '查看日志')

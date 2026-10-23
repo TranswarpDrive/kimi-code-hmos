@@ -116,7 +116,7 @@ mkdir -p "$KIMI_OUT/package" "$KIMI_OUT/runtime" "$KIMI_OUT/licenses"
 # native/ 只是 SEA 自检用的 darwin/linux/win32 原生模块，鸿蒙上用不到
 cp -R "$KIMI_SRC/dist" "$KIMI_SRC/dist-web" "$KIMI_SRC/package.json" "$KIMI_SRC/LICENSE" "$KIMI_OUT/package/"
 cp -R "$DEPS_SRC" "$KIMI_OUT/package/node_modules"
-cp "$ROOT/runtime/ohos-preload.cjs" "$KIMI_OUT/runtime/ohos-preload.cjs"
+cp "$ROOT"/runtime/*.cjs "$KIMI_OUT/runtime/"
 cp "$NODE_SRC/LICENSE" "$KIMI_OUT/licenses/node.LICENSE"
 # hvigor 打包资源时会跳过点文件；这里先删掉，保证磁盘上的内容与 HAP 一致
 find "$KIMI_OUT" -name '.*' -prune -exec rm -rf {} +
@@ -135,3 +135,4 @@ export const KIMI_CODE_VERSION: string = '$KIMI_CODE_VERSION';
 export const KIMI_RESFILE_DIR: string = 'kimicode';
 EOF
 log "RuntimeInfo.ets 已更新（node $NODE_VERSION / kimi-code ${KIMI_CODE_VERSION}）"
+node "$ROOT/scripts/runtime-manifest.cjs"

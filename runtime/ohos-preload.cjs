@@ -7,41 +7,25 @@ const { syncBuiltinESMExports } = require('node:module');
 
 const fsp = fs.promises;
 
-// 沙箱可能拒绝硬链接（EACCES/EPERM）。kimi 用 `fs.promises.link(tmp, dst)` 做“原子独占创建”
-// （锁文件、minidb 元数据），只吞 EEXIST。退化实现用 open(dst, 'wx') 独占创建，保留 EEXIST 语义。
-const LINK_FALLBACK_CODES = new Set(['EACCES', 'EPERM', 'ENOSYS', 'EXDEV', 'ENOTSUP', 'EOPNOTSUPP']);
+// Kimi 用硬链接原子发布锁/元数据。不能用“创建空文件再复制”冒充原子发布：
+// 其他进程会读到半写入数据。平台不支持时明确失败，让上游保留原始文件与错误。
+const LINK_UNSUPPORTED_CODES = new Set(['EACCES', 'EPERM', 'ENOSYS', 'EXDEV', 'ENOTSUP', 'EOPNOTSUPP']);
 
 const originalLink = fsp.link;
 const originalLinkSync = fs.linkSync;
 
-async function exclusiveCopy(existingPath, newPath) {
-  const data = await fsp.readFile(existingPath);
-  const handle = await fsp.open(newPath, 'wx');
-  try {
-    await handle.writeFile(data);
-  } finally {
-    await handle.close();
+function annotateLinkError(error) {
+  if (error && LINK_UNSUPPORTED_CODES.has(error.code)) {
+    error.message += ' [kimi-hmos: atomic hard-link publication is unavailable; no partial destination was created]';
   }
-}
-
-function exclusiveCopySync(existingPath, newPath) {
-  const data = fs.readFileSync(existingPath);
-  const fd = fs.openSync(newPath, 'wx');
-  try {
-    fs.writeFileSync(fd, data);
-  } finally {
-    fs.closeSync(fd);
-  }
+  return error;
 }
 
 fsp.link = async function link(existingPath, newPath) {
   try {
     return await originalLink.call(fsp, existingPath, newPath);
   } catch (err) {
-    if (!err || !LINK_FALLBACK_CODES.has(err.code)) {
-      throw err;
-    }
-    return exclusiveCopy(existingPath, newPath);
+    throw annotateLinkError(err);
   }
 };
 
@@ -49,10 +33,7 @@ fs.linkSync = function linkSync(existingPath, newPath) {
   try {
     return originalLinkSync.call(fs, existingPath, newPath);
   } catch (err) {
-    if (!err || !LINK_FALLBACK_CODES.has(err.code)) {
-      throw err;
-    }
-    return exclusiveCopySync(existingPath, newPath);
+    throw annotateLinkError(err);
   }
 };
 
@@ -61,117 +42,23 @@ fs.link = function link(existingPath, newPath, callback) {
 };
 
 // worker 线程：kimi 创建搜索 worker 时显式传 `execArgv: []`，会丢掉 `--require` 预加载。
-// 给显式 execArgv 补上本文件；搜索 worker 也可在主线程内联执行，避免沙箱在线程创建阶段杀掉进程。
+// 给显式 execArgv 补上本文件；搜索使用独立子进程，避免沙箱在线程创建阶段杀掉主服务。
 const workerThreads = require('node:worker_threads');
-const { EventEmitter } = require('node:events');
 const OriginalWorker = workerThreads.Worker;
-
-class InlineWorker extends EventEmitter {
-  constructor(filename, options) {
-    super();
-    this.filename = filename;
-    this.options = options || {};
-    this.channel = null;
-    this.unrefRequested = false;
-    this.terminated = false;
-  }
-
-  async load() {
-    if (this.terminated) {
-      return;
-    }
-    const { port1, port2 } = new workerThreads.MessageChannel();
-    this.channel = { port1, port2 };
-    if (this.unrefRequested) {
-      this.applyUnref();
-    }
-    port1.on('message', (event) => this.emit('message', event));
-    port1.on('error', (error) => this.emit('error', error));
-    const hadCustomData = Object.prototype.hasOwnProperty.call(globalThis, '__kimiHmosWorkerData');
-    const previousCustomData = globalThis.__kimiHmosWorkerData;
-    const hadParentPort = Object.prototype.hasOwnProperty.call(globalThis, '__kimiHmosParentPort');
-    const previousParentPort = globalThis.__kimiHmosParentPort;
-    globalThis.__kimiHmosParentPort = port2;
-    globalThis.__kimiHmosWorkerData = this.options.workerData;
-    try {
-      const dataMarker = 'const data = workerData;';
-      const portMarker = 'const port = parentPort;';
-      const source = fs.readFileSync(String(this.filename).startsWith('file://') ?
-        require('node:url').fileURLToPath(this.filename) : this.filename, 'utf8');
-      if (!source.includes(dataMarker) || !source.includes(portMarker)) {
-        throw new Error(`inline worker entry protocol markers not found: ${String(this.filename)}`);
-      }
-      const patched = source.replace(dataMarker, 'const data = globalThis.__kimiHmosWorkerData;')
-        .replace(portMarker, 'const port = globalThis.__kimiHmosParentPort;');
-      await import(`data:text/javascript;base64,${Buffer.from(patched).toString('base64')}`);
-    } catch (error) {
-      this.emit('error', error);
-    } finally {
-      if (hadCustomData) {
-        globalThis.__kimiHmosWorkerData = previousCustomData;
-      } else {
-        delete globalThis.__kimiHmosWorkerData;
-      }
-      if (hadParentPort) {
-        globalThis.__kimiHmosParentPort = previousParentPort;
-      } else {
-        delete globalThis.__kimiHmosParentPort;
-      }
-    }
-  }
-
-  postMessage(value) {
-    if (this.channel === null) {
-      throw new Error('inline worker channel is closed');
-    }
-    this.channel.port1.postMessage(value);
-  }
-
-  applyUnref() {
-    if (this.channel === null) {
-      return;
-    }
-    this.channel.port1.unref();
-    this.channel.port2.unref();
-  }
-
-  unref() {
-    this.unrefRequested = true;
-    this.applyUnref();
-    return this;
-  }
-
-  terminate() {
-    this.terminated = true;
-    if (this.channel !== null) {
-      this.channel.port1.close();
-      this.channel.port2.close();
-    }
-    setImmediate(() => this.emit('exit', 0));
-    return Promise.resolve(0);
-  }
-}
-
-let inlineLoadQueue = Promise.resolve();
-function createInlineWorker(filename, options) {
-  const worker = new InlineWorker(filename, options);
-  worker.ready = inlineLoadQueue.then(() => worker.load(), () => worker.load());
-  return worker;
-}
+const { ProcessWorker } = require('./process-worker.cjs');
 
 workerThreads.Worker = class OhosWorker extends OriginalWorker {
   constructor(filename, options) {
     const isSearchWorker = String(filename).endsWith('search-worker.mjs');
-    const mode = process.env.KIMI_HMOS_SEARCH_WORKER_MODE ||
-      (process.env.KIMI_HMOS_NO_SEARCH_WORKER === '1' ? 'disabled' : 'inline');
+    const mode = process.env.KIMI_HMOS_SEARCH_WORKER_MODE || 'process';
     if (process.env.KIMI_HMOS_DEBUG === '1') {
       fs.writeSync(2, `[trace] new Worker ${String(filename).slice(0, 200)} (${isSearchWorker ? mode : 'thread'})\n`);
     }
     if (isSearchWorker && mode === 'disabled') {
       throw new Error('search worker disabled by KIMI_HMOS_SEARCH_WORKER_MODE');
     }
-    if (isSearchWorker && mode === 'inline') {
-      return createInlineWorker(filename, options);
+    if (isSearchWorker && mode !== 'thread') {
+      return new ProcessWorker(filename, options);
     }
     if (options && Array.isArray(options.execArgv) && !options.execArgv.includes(__filename)) {
       options = { ...options, execArgv: ['--require', __filename, ...options.execArgv] };

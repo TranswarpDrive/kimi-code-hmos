@@ -48,7 +48,7 @@
     "requestPermissions": [
       {
         // 受限（ACL）权限：V8 JIT 需要可写可执行的匿名内存。随包 node 经 INHERIT_PARENT_PERMISSION 继承它。
-        // 缺少它时 node 会在启动阶段 SIGTRAP，只能降级 --jitless（而 jitless 下没有 WebAssembly，fetch 不可用）。
+        // 缺少它时 node 会在启动阶段 SIGTRAP；应用会提示检查签名，不能用无法联网的 jitless 模式代替。
         // 实测 2in1 的 normal 级 kernel.EXEMPT_ANONYMOUS_EXECUTABLE_MEMORY 不能替代它。
         // 调试 Profile 由 devecocli signature generate 自动带上该 ACL；上架需另行向 AGC 申请。
         "name": "ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY"

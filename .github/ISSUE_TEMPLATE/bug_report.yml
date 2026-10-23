@@ -1,0 +1,22 @@
+name: 使用问题 / Bug report
+description: 安装、启动、搜索、文件或工具执行问题
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: 版本与环境
+      description: 请提供应用版本、设备型号、HarmonyOS 版本/API、签名工具及版本、是否由旧版覆盖升级。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 如何复现
+      description: 操作步骤、预期结果和实际结果。安装失败时请附错误码。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图
+      description: 可从应用“查看日志”复制。请先检查是否包含个人文件、对话、设备信息或凭据；不要上传证书、Profile、完整 home 目录或 server.token。

@@ -20,5 +20,11 @@ export const kill: (pid: number, signal: number) => boolean;
 
 export const isAlive: (pid: number) => boolean;
 
+/** 包括组长已退出但仍存活的子进程。 */
+export const isGroupAlive: (pid: number) => boolean;
+
+/** 先发送 SIGTERM，宽限期后由原生线程回收剩余进程组，不依赖 ArkTS 生命周期。 */
+export const terminate: (pid: number, graceMs: number) => void;
+
 /** libkimihost.so 所在目录（解压后的原生库目录，node 与 libkimicompat.so 也在这里） */
 export const nativeLibDir: () => string;

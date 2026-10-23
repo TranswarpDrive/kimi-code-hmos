@@ -39,10 +39,9 @@ actual="$(sha256_of "$node_archive")"
 log "Node $NODE_VERSION 校验通过"
 
 node_dir="$VENDOR/node/node-v$NODE_VERSION-openharmony-arm64"
-if [[ ! -x "$node_dir/bin/node" ]]; then
-  rm -rf "$VENDOR/node" && mkdir -p "$VENDOR/node"
-  tar -xJf "$node_archive" -C "$VENDOR/node"
-fi
+# 每次从已校验归档重新解包，避免旧版本或被改动的解压缓存混进发布包。
+rm -rf "$VENDOR/node" && mkdir -p "$VENDOR/node"
+tar -xJf "$node_archive" -C "$VENDOR/node"
 [[ -x "$node_dir/bin/node" ]] || die "解压后找不到 $node_dir/bin/node"
 
 # --- git / ripgrep（鸿蒙预编译） --------------------------------------------
@@ -58,10 +57,8 @@ actual="$(sha256_of "$git_archive")"
 log "git $GIT_VERSION 校验通过"
 
 git_dir="$VENDOR/git/git-$GIT_VERSION-ohos-arm64"
-if [[ ! -x "$git_dir/bin/git" ]]; then
-  rm -rf "$VENDOR/git" && mkdir -p "$VENDOR/git"
-  tar -xzf "$git_archive" -C "$VENDOR/git"
-fi
+rm -rf "$VENDOR/git" && mkdir -p "$VENDOR/git"
+tar -xzf "$git_archive" -C "$VENDOR/git"
 [[ -x "$git_dir/bin/git" ]] || die "解压后找不到 $git_dir/bin/git"
 
 python_archive="$VENDOR/downloads/$PYTHON_TARBALL"
@@ -76,10 +73,8 @@ actual="$(sha256_of "$python_archive")"
 log "Python $PYTHON_VERSION 校验通过"
 
 python_dir="$VENDOR/python/python-$PYTHON_VERSION-ohos-arm64"
-if [[ ! -x "$python_dir/bin/python3.14" ]]; then
-  rm -rf "$VENDOR/python" && mkdir -p "$VENDOR/python"
-  tar -xzf "$python_archive" -C "$VENDOR/python"
-fi
+rm -rf "$VENDOR/python" && mkdir -p "$VENDOR/python"
+tar -xzf "$python_archive" -C "$VENDOR/python"
 [[ -x "$python_dir/bin/python3.14" ]] || die "解压后找不到 $python_dir/bin/python3.14"
 
 rg_archive="$VENDOR/downloads/rg-$RG_BUILD"
@@ -101,29 +96,23 @@ integrity_of() { printf 'sha512-%s' "$(openssl dgst -sha512 -binary "$1" | opens
 if [[ ! -f "$kimi_archive" || "$(integrity_of "$kimi_archive")" != "$KIMI_CODE_INTEGRITY" ]]; then
   rm -f "$kimi_archive"
   log "下载 @moonshot-ai/kimi-code@$KIMI_CODE_VERSION"
-  (cd "$VENDOR/downloads" && npm pack "@moonshot-ai/kimi-code@$KIMI_CODE_VERSION" --silent >/dev/null)
+  (cd "$VENDOR/downloads" && npm pack "@moonshot-ai/kimi-code@$KIMI_CODE_VERSION" --ignore-scripts --silent >/dev/null)
 fi
 actual="$(integrity_of "$kimi_archive")"
 [[ "$actual" == "$KIMI_CODE_INTEGRITY" ]] || die "kimi-code integrity 不匹配：$actual"
 log "kimi-code $KIMI_CODE_VERSION 校验通过"
 
 kimi_dir="$VENDOR/kimi-code"
-stamp="$kimi_dir/.version"
-if [[ ! -f "$stamp" || "$(cat "$stamp")" != "$KIMI_CODE_VERSION" ]]; then
-  rm -rf "$kimi_dir" && mkdir -p "$kimi_dir"
-  tar -xzf "$kimi_archive" -C "$kimi_dir"
-  echo "$KIMI_CODE_VERSION" >"$stamp"
-fi
+rm -rf "$kimi_dir" && mkdir -p "$kimi_dir"
+tar -xzf "$kimi_archive" -C "$kimi_dir"
 [[ -f "$kimi_dir/package/dist/main.mjs" ]] || die "kimi-code 包结构异常：缺少 dist/main.mjs"
 
 # --- kimi 运行时依赖（在我们自己的目录里按锁文件安装，不执行任何安装脚本） ---------
 deps_dir="$VENDOR/kimi-deps"
-if [[ ! -d "$deps_dir/node_modules/ws" || "$ROOT/runtime/kimi-deps/package-lock.json" -nt "$deps_dir/node_modules" ]]; then
-  rm -rf "$deps_dir" && mkdir -p "$deps_dir"
-  cp "$ROOT/runtime/kimi-deps/package.json" "$ROOT/runtime/kimi-deps/package-lock.json" "$deps_dir/"
-  log "安装 kimi 运行时依赖（npm ci --omit=dev --ignore-scripts）"
-  npm ci --prefix "$deps_dir" --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund --silent
-fi
+mkdir -p "$deps_dir"
+cp "$ROOT/runtime/kimi-deps/package.json" "$ROOT/runtime/kimi-deps/package-lock.json" "$deps_dir/"
+log "安装 kimi 运行时依赖（npm ci --omit=dev --ignore-scripts）"
+npm ci --prefix "$deps_dir" --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund --prefer-offline --silent
 [[ -d "$deps_dir/node_modules/ws" && -d "$deps_dir/node_modules/qrcode" ]] || die "运行时依赖安装失败"
 
 log "完成：$node_dir"

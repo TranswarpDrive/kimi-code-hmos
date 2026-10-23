@@ -1,0 +1,55 @@
+# 安装与升级
+
+适用于 **HarmonyOS PC（2in1）、API 26**。不支持手机、平板及旧版 HarmonyOS。应用内置 Kimi Code 2.2.0；使用模型还需要自己的 Kimi 账号和可用服务。
+
+## 下载与校验
+
+从本仓库的 GitHub Releases 下载 `*-release-unsigned.hap` 和 `SHA256SUMS`。这是未签名安装包，需要使用接收方自己的华为开发者账号签名后侧载，不能直接双击安装。
+
+macOS 在下载目录中运行：
+
+```bash
+shasum -a 256 KimiCode-hmos-0.2.0-kimi2.2.0-release-unsigned.hap
+```
+
+Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径> -Algorithm SHA256`。将结果与 `SHA256SUMS` 中对应文件的一行核对。下载完整的全部附件后，也可运行 `shasum -a 256 -c SHA256SUMS`。
+
+## 首次安装
+
+1. 在鸿蒙电脑开启开发者模式和 USB/无线调试，允许连接设备的电脑进行调试。
+2. 使用支持鸿蒙 PC 随包二进制签名的工具，例如项目此前验证过的 [HoKit](https://github.com/yabi-zzh/HoKit)，登录**自己的**华为开发者账号。
+3. 导入未签名 HAP，使用工具生成的证书和本设备 Profile 签名、安装。Profile 必须包含包内声明的 ACL，尤其是 `ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY`（JIT）与 `ohos.permission.FILE_ACCESS_PERSIST`（目录持久授权）。不要用删除权限声明的方法绕过签名失败。
+4. 启动 Kimi Code，允许所需的“文档”“下载”和后台运行权限。首次加载需要解压运行时并启动服务。
+5. 登录时在系统浏览器完成 Kimi 设备码授权，回到应用。授权由 Kimi 服务轮询确认。
+6. 用顶部“选择目录”指定项目文件夹，再开始使用。新会话使用新的默认目录；已有会话仍可能保留其原工作目录。
+
+发布包不含签名证书、个人账号、会话或开发者设备信息。第三方签名工具各版本的操作界面可能不同，以工具实际提示为准。
+
+## 升级与证书续期
+
+使用**同一账号、同一证书**给新版 HAP 签名并覆盖安装。开发脚本 `scripts/install.sh` 使用覆盖安装，保留登录和会话。
+
+遇到签名不一致时，先找回原证书或原签名工具配置。**卸载会删除应用沙箱中的登录、会话和默认沙箱工作文件**；确实需要更换证书时，先导出需要保留的会话并复制工作文件，再自行决定是否卸载。
+
+调试 Profile 的期限以签名工具显示为准。续期尽量沿用原证书。不要为了日常升级反复生成新证书。
+
+## 常见问题
+
+| 现象 | 处理 |
+|---|---|
+| 设备类型/API 不支持 | 确认是鸿蒙 PC 2in1、API 26；模拟器专用包不用于分发 |
+| 安装提示 ACL、Profile 或代码签名错误 | 检查 Profile 绑定的设备、上述 ACL，以及工具是否给所有随包 ELF 签名 |
+| 启动失败、信号退出 | 打开“查看日志”；检查 JIT ACL。0.2.0 不再把无法联网的 jitless 模式显示为可用 |
+| 工作目录无法访问 | 重新选择目录并授权；冷启动恢复授权失败时会提示并使用默认目录 |
+| 保存下载失败 | 检查“下载”目录权限和剩余空间。会话 ZIP、blob 下载上限 32 MiB，超限请缩小导出范围 |
+| 搜索暂时没有结果 | 首次建立索引可能需要时间；仍失败时查看日志并重启服务 |
+| 网页终端不可用 | 当前设备沙箱不允许 PTY；请使用 Kimi Shell 工具执行命令 |
+| 调试日志太多 | 点击“关闭调试”并重启。日志会轮转，不会无限累积 |
+
+反馈问题请使用仓库的 Bug report 模板，附应用版本、系统版本、签名工具、复现步骤和脱敏日志。不要上传证书、Profile、token 或个人会话内容。
+
+## English
+
+Requires a HarmonyOS **PC / 2in1, API 26**. Download the `release-unsigned.hap` and verify its SHA-256 against `SHA256SUMS`. Sign it with your own Huawei developer certificate and a profile for your device, using a tool that signs bundled ELF executables. The profile must include the requested JIT and persistent-file-access ACL permissions.
+
+Keep the same certificate when upgrading and install in place. Uninstalling deletes sandboxed login state, sessions and workspace files. The Web terminal is unavailable; use the Shell tool. Blob/session ZIP downloads are limited to 32 MiB. See `VALIDATION.md` for the exact tested scope.

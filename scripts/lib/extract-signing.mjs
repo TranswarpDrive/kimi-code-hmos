@@ -22,8 +22,9 @@ for (const key of ['certpath', 'profile', 'storeFile']) {
     process.exit(1);
   }
 }
-fs.mkdirSync(path.dirname(outPath), { recursive: true });
+fs.mkdirSync(path.dirname(outPath), { recursive: true, mode: 0o700 });
 fs.writeFileSync(outPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+fs.chmodSync(outPath, 0o600);
 console.log(`签名配置已写入 ${outPath}`);
 console.log(`  证书    ${config.material.certpath}`);
 console.log(`  Profile ${config.material.profile}`);

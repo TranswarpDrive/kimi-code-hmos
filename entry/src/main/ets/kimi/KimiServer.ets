@@ -1,11 +1,11 @@
 import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { fileIo as fs } from '@kit.CoreFileKit';
+import { fileIo as fs, fileShare } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
-import { process, util } from '@kit.ArkTS';
+import { util } from '@kit.ArkTS';
 import kimihost from 'libkimihost.so';
 import { logRecentCrashes } from './Diagnostics';
-import { Log } from './Log';
+import { Log, redactSecrets, SafeLogLines } from './Log';
 import { KIMI_CODE_VERSION, KIMI_RESFILE_DIR, NODE_VERSION } from './RuntimeInfo';
 
 export enum ServerPhase {
@@ -23,7 +23,7 @@ export class ServerStatus {
   port: number = 0;
   pid: number = 0;
   message: string = '';
-  /** 降级运行时给用户的提示（如 jitless 模式），为空表示正常 */
+  /** 工作目录授权等需要用户处理的提示，为空表示正常 */
   warning: string = '';
 }
 
@@ -36,11 +36,8 @@ class ExitInfo {
 
 // SIGILL、SIGTRAP、SIGABRT、SIGBUS、SIGSEGV：V8 申请可执行内存失败时的典型死法
 const JIT_CRASH_SIGNALS: number[] = [4, 5, 6, 7, 11];
-const JITLESS_WARNING: string = '未获得 JIT 权限，Kimi Code 以 jitless 模式运行，联网功能可能不可用。' +
-  '请确认签名 Profile 含 ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY 后重新安装。';
 const LOG_FORWARD_INTERVAL_MS: number = 1000;
 const LOG_FORWARD_MAX_BYTES: number = 64 * 1024;
-const LOG_FORWARD_MAX_LINE: number = 900;
 
 const PREFERRED_PORT: number = 58637; // 避开终端里 `kimi web` 的默认端口 58627
 const PORT_ATTEMPTS: number = 20;
@@ -127,17 +124,21 @@ export class KimiServer {
   private status: ServerStatus = new ServerStatus();
   private listeners: StatusListener[] = [];
   private startSeq: number = 0;
+  private operationQueue: Promise<void> = Promise.resolve();
+  private disposed: boolean = false;
+  private workspaceWarning: string = '';
+  private processGroupPid: number = 0;
 
   homeDir: string = '';
   logPath: string = '';
   private pidPath: string = '';
-  /** 本次启动是否已降级为 --jitless；每次 start() 都先尝试 JIT */
-  private jitless: boolean = false;
   private lastExit: ExitInfo | null = null;
   /** 应用数据目录下存在 debug.flag 时，打开 kimi debug 日志与预加载脚本的调用追踪（很吵，仅排障用） */
   private debug: boolean = false;
   private debugFlagPath: string = '';
   private forwardOffset: number = 0;
+  private forwardInode: string = '';
+  private forwardLines: SafeLogLines = new SafeLogLines();
   private forwardTimer: number = -1;
   /** 解压后的原生库目录：node（executableBinaryPaths）、libc++_shared.so、libkimicompat.so */
   private libDir: string = '';
@@ -155,6 +156,8 @@ export class KimiServer {
   }
 
   init(context: common.UIAbilityContext): void {
+    this.disposed = false;
+    this.startSeq++;
     this.context = context;
     this.homeDir = `${context.filesDir}/home`;
     const logDir = `${context.filesDir}/logs`;
@@ -168,10 +171,8 @@ export class KimiServer {
     this.workspaceUriConfig = `${context.filesDir}/workspace.uri`;
     try {
       const saved = readText(this.workspacePathConfig);
-      if (isDirectory(saved)) {
+      if (saved.startsWith('/')) {
         this.customWorkspace = saved;
-      } else if (saved !== '') {
-        Log.warn(`ignore unavailable workspace: ${saved}`);
       }
     } catch (err) {
       this.customWorkspace = '';
@@ -218,7 +219,7 @@ export class KimiServer {
     next.port = this.status.port;
     next.pid = this.status.pid;
     next.url = phase === ServerPhase.READY ? this.status.url : '';
-    next.warning = phase === ServerPhase.READY && this.jitless ? JITLESS_WARNING : '';
+    next.warning = phase === ServerPhase.READY ? this.workspaceWarning : '';
     this.status = next;
     Log.info(`server ${phase}: ${message}`);
     for (const listener of this.listeners) {
@@ -272,39 +273,87 @@ export class KimiServer {
     }
   }
 
-  async start(): Promise<void> {
+  /** 新请求立即使在途启动失效，实际进程操作严格串行；关闭 Ability 后不再执行排队操作。 */
+  private enqueue(operation: (seq: number) => Promise<void>): Promise<void> {
+    const seq = ++this.startSeq;
+    const task = this.operationQueue.then(async () => {
+      if (this.disposed || seq !== this.startSeq) {
+        return;
+      }
+      await operation(seq);
+    });
+    this.operationQueue = task.catch((err: Error) => {
+      Log.error(`server operation failed: ${err.message}`);
+    });
+    return task;
+  }
+
+  start(): Promise<void> {
+    if (this.status.phase === ServerPhase.READY || this.status.phase === ServerPhase.STARTING) {
+      return this.operationQueue;
+    }
+    return this.enqueue((seq: number) => this.startInternal(seq));
+  }
+
+  private async restoreWorkspacePermission(): Promise<void> {
+    this.workspaceWarning = '';
+    if (this.customWorkspace === '') {
+      return;
+    }
+    try {
+      const uri = readText(this.workspaceUriConfig);
+      if (uri !== '') {
+        await fileShare.activatePermission([{
+          uri: uri,
+          operationMode: fileShare.OperationMode.READ_MODE | fileShare.OperationMode.WRITE_MODE
+        }]);
+      }
+    } catch (err) {
+      Log.warn(`restore workspace permission failed: ${String(err)}`);
+    }
+    if (!isDirectory(this.customWorkspace)) {
+      this.workspaceWarning = '上次选择的目录目前无法访问，已切换到默认目录。请重新选择并授权工作目录。';
+      this.customWorkspace = '';
+    }
+  }
+
+  private async startInternal(seq: number): Promise<void> {
     if (this.context === null) {
       throw new Error('KimiServer.init() not called');
     }
     if (this.status.phase === ServerPhase.STARTING || this.status.phase === ServerPhase.READY) {
       return;
     }
-    const seq = ++this.startSeq;
-    this.jitless = false;
     this.update(ServerPhase.STARTING, '正在检查内置运行时…');
     try {
-      this.killStaleServer();
+      // PID 会被系统复用；磁盘上的旧 PID 不能作为杀进程的依据。
+      this.removePidFile();
       this.rotateLog();
       this.assertRuntimeInstalled();
       this.debug = pathExists(this.debugFlagPath);
+      await this.restoreWorkspacePermission();
+      if (seq !== this.startSeq || this.disposed) {
+        return;
+      }
       try {
         await this.launch(seq);
       } catch (err) {
-        if (seq !== this.startSeq || this.jitless || !this.exitLooksLikeJitFailure()) {
+        if (seq !== this.startSeq || !this.exitLooksLikeJitFailure()) {
           throw err as Error;
         }
-        // V8 JIT 需要可写可执行的匿名内存；应用没有 ALLOW_WRITABLE_CODE_MEMORY 时 node 会在启动阶段崩溃，
-        // 降级 --jitless 重试（代价是没有 WebAssembly，Node 内置 fetch 依赖它）
-        Log.warn('node crashed during startup, retrying with --jitless');
-        this.jitless = true;
-        await this.launch(seq);
+        throw new Error(`${String(err)}\n请检查重签 Profile 是否包含 ` +
+          'ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY。缺少该权限时请重新签名安装；' +
+          '若权限已具备，请查看崩溃日志。');
       }
     } catch (err) {
       if (seq !== this.startSeq) {
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
-      this.stopProcess();
+      await this.stopProcessGracefully();
+      if (seq !== this.startSeq || this.disposed) {
+        return;
+      }
       this.update(ServerPhase.FAILED, message);
       // 崩溃记录由 faultloggerd 异步生成，稍等再查
       const since = Date.now() - 60000;
@@ -321,11 +370,11 @@ export class KimiServer {
       return;
     }
     this.status.port = port;
-    const mode = this.jitless ? '，jitless 模式' : '';
-    this.update(ServerPhase.STARTING, `正在启动 Kimi Code 服务（127.0.0.1:${port}${mode}）…`);
+    this.update(ServerPhase.STARTING, `正在启动 Kimi Code 服务（127.0.0.1:${port}）…`);
     this.lastExit = null;
     const pid = this.spawnServer(port, seq);
     this.status.pid = pid;
+    this.processGroupPid = pid;
     writeText(this.pidPath, String(pid), false);
     await this.waitReady(port, pid, seq);
     if (seq !== this.startSeq) {
@@ -333,7 +382,7 @@ export class KimiServer {
     }
     const token = readText(`${this.homeDir}/.kimi-code/server.token`);
     this.status.url = `http://127.0.0.1:${port}/#token=${token}`;
-    this.update(ServerPhase.READY, `已就绪（pid ${pid}${mode}）`);
+    this.update(ServerPhase.READY, `已就绪（pid ${pid}）`);
   }
 
   private exitLooksLikeJitFailure(): boolean {
@@ -357,8 +406,16 @@ export class KimiServer {
    * 便于 `hdc shell hilog -x -T KimiShell` 远程排障。token 会被打码。
    */
   private startLogForwarding(): void {
+    this.forwardLines.reset(true);
     try {
-      this.forwardOffset = pathExists(this.logPath) ? fs.statSync(this.logPath).size : 0;
+      if (pathExists(this.logPath)) {
+        const stat = fs.statSync(this.logPath);
+        this.forwardOffset = stat.size;
+        this.forwardInode = String(stat.ino);
+      } else {
+        this.forwardOffset = 0;
+        this.forwardInode = '';
+      }
     } catch (err) {
       this.forwardOffset = 0;
     }
@@ -374,9 +431,14 @@ export class KimiServer {
       if (!pathExists(this.logPath)) {
         return;
       }
-      const size = fs.statSync(this.logPath).size;
-      if (size < this.forwardOffset) {
+      const stat = fs.statSync(this.logPath);
+      const size = stat.size;
+      const inode = String(stat.ino);
+      if (inode !== this.forwardInode || size < this.forwardOffset) {
         this.forwardOffset = 0; // 日志被轮转
+        this.forwardInode = inode;
+        // 原生轮转可能发生在一行中间，首个片段不能单独脱敏后输出。
+        this.forwardLines.reset(true);
       }
       if (size === this.forwardOffset) {
         return;
@@ -384,47 +446,52 @@ export class KimiServer {
       const length = Math.min(size - this.forwardOffset, LOG_FORWARD_MAX_BYTES);
       const file = fs.openSync(this.logPath, fs.OpenMode.READ_ONLY);
       const buffer = new ArrayBuffer(length);
+      let bytesRead = 0;
       try {
-        fs.readSync(file.fd, buffer, { offset: this.forwardOffset, length: length });
+        bytesRead = fs.readSync(file.fd, buffer, { offset: this.forwardOffset, length: length });
       } finally {
         fs.closeSync(file);
       }
-      this.forwardOffset += length;
+      this.forwardOffset += bytesRead;
       const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
-      const text = decoder.decodeToString(new Uint8Array(buffer), { stream: false });
-      for (const line of text.split('\n')) {
-        const trimmed = line.trimEnd();
-        if (trimmed.length > 0) {
-          const safe = trimmed.replace(/(#token=|Token:\s*)[A-Za-z0-9_-]+/g, '$1***');
-          Log.info(`[node] ${safe.substring(0, LOG_FORWARD_MAX_LINE)}`);
-        }
+      const text = decoder.decodeToString(new Uint8Array(buffer, 0, bytesRead), { stream: false });
+      for (const line of this.forwardLines.push(text)) {
+        Log.info(`[node] ${line}`);
       }
     } catch (err) {
       // 转发只是辅助手段，失败不影响服务
     }
   }
 
-  async restart(): Promise<void> {
-    await this.stop();
-    await this.start();
+  restart(): Promise<void> {
+    return this.enqueue(async (seq: number) => {
+      await this.stopInternal();
+      if (seq === this.startSeq && !this.disposed) {
+        await this.startInternal(seq);
+      }
+    });
   }
 
-  async stop(): Promise<void> {
-    if (this.status.pid <= 0) {
-      this.startSeq++;
+  stop(): Promise<void> {
+    return this.enqueue(() => this.stopInternal());
+  }
+
+  private async stopInternal(): Promise<void> {
+    if (this.processGroupPid <= 0) {
       this.update(ServerPhase.IDLE, '已停止');
       return;
     }
-    this.startSeq++;
     this.update(ServerPhase.STOPPING, '正在停止服务…');
     await this.stopProcessGracefully();
     this.update(ServerPhase.IDLE, '已停止');
   }
 
-  /** 同步停止（Ability 销毁时用）：只发 SIGTERM，PDEATHSIG 兜底 */
+  /** Ability 销毁后取消所有排队任务；原生层负责限时回收整个进程组。 */
   stopNow(): void {
+    this.disposed = true;
     this.startSeq++;
     this.stopProcess();
+    this.update(ServerPhase.IDLE, '已停止');
     if (this.forwardTimer >= 0) {
       clearInterval(this.forwardTimer);
       this.forwardTimer = -1;
@@ -432,30 +499,36 @@ export class KimiServer {
   }
 
   private stopProcess(): void {
-    const pid = this.status.pid;
+    const pid = this.processGroupPid;
     if (pid > 0) {
-      kimihost.kill(pid, SIGTERM);
+      kimihost.terminate(pid, STOP_GRACE_MS);
     }
     this.status.pid = 0;
+    this.processGroupPid = 0;
     this.removePidFile();
   }
 
   private async stopProcessGracefully(): Promise<void> {
-    const pid = this.status.pid;
+    const pid = this.processGroupPid;
     if (pid <= 0) {
       return;
     }
     kimihost.kill(pid, SIGTERM);
     const deadline = Date.now() + STOP_GRACE_MS;
-    while (kimihost.isAlive(pid) && Date.now() < deadline) {
+    while (kimihost.isGroupAlive(pid) && Date.now() < deadline) {
       await sleep(150);
     }
-    if (kimihost.isAlive(pid)) {
+    if (kimihost.isGroupAlive(pid)) {
       Log.warn(`pid ${pid} did not exit after SIGTERM, sending SIGKILL`);
       kimihost.kill(pid, SIGKILL);
     }
-    this.status.pid = 0;
-    this.removePidFile();
+    if (this.status.pid === pid) {
+      this.status.pid = 0;
+      this.removePidFile();
+    }
+    if (this.processGroupPid === pid) {
+      this.processGroupPid = 0;
+    }
   }
 
   private removePidFile(): void {
@@ -464,23 +537,6 @@ export class KimiServer {
     } catch (err) {
       // 不存在即可
     }
-  }
-
-  /** 上次异常退出（应用被强杀）可能留下孤儿进程，先清掉 */
-  private killStaleServer(): void {
-    if (!pathExists(this.pidPath)) {
-      return;
-    }
-    try {
-      const stale = Number.parseInt(readText(this.pidPath), 10);
-      if (stale > 0 && stale !== process.pid && kimihost.isAlive(stale)) {
-        Log.warn(`killing stale server pid ${stale}`);
-        kimihost.kill(stale, SIGKILL);
-      }
-    } catch (err) {
-      Log.warn(`read stale pid failed: ${String(err)}`);
-    }
-    this.removePidFile();
   }
 
   private rotateLog(): void {
@@ -498,7 +554,13 @@ export class KimiServer {
       this.nodePath,
       `${this.libDir}/libkimicompat.so`,
       `${this.kimiRoot}/package/dist/main.mjs`,
-      `${this.kimiRoot}/runtime/ohos-preload.cjs`
+      `${this.kimiRoot}/package/dist/search-worker.mjs`,
+      `${this.kimiRoot}/runtime/ohos-preload.cjs`,
+      `${this.kimiRoot}/runtime/process-worker.cjs`,
+      `${this.kimiRoot}/runtime/worker-child.cjs`,
+      `${this.libDir}/python3`,
+      `${this.libDir}/git`,
+      `${this.libDir}/rg`
     ];
     for (const path of required) {
       if (!pathExists(path)) {
@@ -550,8 +612,7 @@ export class KimiServer {
       'NODE_ENV=production',
       'KIMI_HMOS_SHELL=1',
       `KIMI_HMOS_DEBUG=${this.debug ? '1' : '0'}`,
-      // 沙箱在线程创建阶段会杀掉 kimi 的搜索 worker；预加载脚本改为在主线程内联执行同样的协议和业务代码
-      'KIMI_HMOS_SEARCH_WORKER_MODE=inline'
+      'KIMI_HMOS_SEARCH_WORKER_MODE=process'
     ];
   }
 
@@ -560,9 +621,6 @@ export class KimiServer {
     const workspace = this.defaultWorkspace();
     Log.info(`workspace: ${workspace}`);
     const args: string[] = [this.nodePath];
-    if (this.jitless) {
-      args.push('--jitless');
-    }
     args.push(
       '--require', `${this.kimiRoot}/runtime/ohos-preload.cjs`,
       main,
@@ -575,7 +633,7 @@ export class KimiServer {
       args.push('--log-level', 'debug');
     }
     const header = `\n===== ${new Date().toISOString()} start kimi-code ${KIMI_CODE_VERSION} on node ${NODE_VERSION}` +
-      ` port ${port}${this.jitless ? ' (jitless)' : ''}\n`;
+      ` port ${port}\n`;
     writeText(this.logPath, header, true);
     return kimihost.spawn({
       file: this.nodePath,
@@ -599,10 +657,11 @@ export class KimiServer {
     this.lastExit = exit;
     this.status.pid = 0;
     this.removePidFile();
-    // 启动阶段的退出由 waitReady/start 处理（可能触发 --jitless 重试）
+    // 启动阶段的退出由 waitReady/start 处理。
     if (seq !== this.startSeq || this.status.phase !== ServerPhase.READY) {
       return;
     }
+    this.stopProcess();
     this.update(ServerPhase.FAILED, `Kimi Code 服务意外退出（${this.describeLastExit()}），详见日志。`);
   }
 
@@ -636,10 +695,13 @@ export class KimiServer {
       const file = fs.openSync(this.logPath, fs.OpenMode.READ_ONLY);
       try {
         const buffer = new ArrayBuffer(length);
-        fs.readSync(file.fd, buffer, { offset: size - length, length: length });
+        const bytesRead = fs.readSync(file.fd, buffer, { offset: size - length, length: length });
         const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
-        const text = decoder.decodeToString(new Uint8Array(buffer), { stream: false });
-        return text.replace(/(#token=|Token:\s*)[A-Za-z0-9_-]+/g, '$1***');
+        let text = decoder.decodeToString(new Uint8Array(buffer, 0, bytesRead), { stream: false });
+        // 即使读取了整个文件，轮转后的第一行也可能只是上一文件的后半段。
+        const newline = text.indexOf('\n');
+        text = newline >= 0 ? text.substring(newline + 1) : '';
+        return redactSecrets(text);
       } finally {
         fs.closeSync(file);
       }

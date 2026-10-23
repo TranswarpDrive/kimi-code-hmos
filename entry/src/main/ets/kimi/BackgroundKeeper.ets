@@ -9,12 +9,36 @@ import { Log } from './Log';
  */
 export class BackgroundKeeper {
   private running: boolean = false;
+  private wanted: boolean = false;
+  private queue: Promise<void> = Promise.resolve();
 
-  async start(context: common.UIAbilityContext): Promise<void> {
-    if (this.running) {
-      return;
-    }
+  start(context: common.UIAbilityContext): Promise<void> {
+    this.wanted = true;
+    return this.schedule(context);
+  }
+
+  stop(context: common.UIAbilityContext): Promise<void> {
+    this.wanted = false;
+    return this.schedule(context);
+  }
+
+  private schedule(context: common.UIAbilityContext): Promise<void> {
+    this.queue = this.queue.then(() => this.reconcile(context));
+    return this.queue;
+  }
+
+  private async reconcile(context: common.UIAbilityContext): Promise<void> {
     try {
+      if (!this.wanted) {
+        if (this.running) {
+          await backgroundTaskManager.stopBackgroundRunning(context);
+          this.running = false;
+        }
+        return;
+      }
+      if (this.running) {
+        return;
+      }
       const info: wantAgent.WantAgentInfo = {
         wants: [{ bundleName: context.abilityInfo.bundleName, abilityName: context.abilityInfo.name }],
         actionType: wantAgent.OperationType.START_ABILITY,
@@ -22,26 +46,16 @@ export class BackgroundKeeper {
         actionFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
       };
       const agent: WantAgent = await wantAgent.getWantAgent(info);
+      if (!this.wanted) {
+        return;
+      }
       await backgroundTaskManager.startBackgroundRunning(context,
         backgroundTaskManager.BackgroundMode.TASK_KEEPING, agent);
       this.running = true;
       Log.info('continuous task (TASK_KEEPING) started');
     } catch (err) {
       const e = err as BusinessError;
-      Log.warn(`startBackgroundRunning failed (${e.code}): ${e.message}`);
-    }
-  }
-
-  async stop(context: common.UIAbilityContext): Promise<void> {
-    if (!this.running) {
-      return;
-    }
-    this.running = false;
-    try {
-      await backgroundTaskManager.stopBackgroundRunning(context);
-    } catch (err) {
-      const e = err as BusinessError;
-      Log.warn(`stopBackgroundRunning failed (${e.code}): ${e.message}`);
+      Log.warn(`background task update failed (${e.code}): ${e.message}`);
     }
   }
 }

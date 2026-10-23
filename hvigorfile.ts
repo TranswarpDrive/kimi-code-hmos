@@ -15,17 +15,18 @@ function localSigningPlugin(): HvigorPlugin {
     apply(node: HvigorNode) {
       const appContext = node.getContext(OhosPluginId.OHOS_APP_PLUGIN) as OhosAppContext;
       const signingDir = path.join(node.getNodePath(), 'signing');
-      if (!fs.existsSync(signingDir)) {
-        return;
-      }
-      const configs = fs.readdirSync(signingDir)
+      const unsignedOnly = process.env.KIMI_UNSIGNED_ONLY === '1';
+      const files = !unsignedOnly && fs.existsSync(signingDir) ? fs.readdirSync(signingDir) : [];
+      const configs = files
         .filter((file) => file.endsWith('.local.json'))
         .map((file) => JSON.parse(fs.readFileSync(path.join(signingDir, file), 'utf-8')));
-      if (configs.length === 0) {
-        return;
-      }
       const buildProfileOpt = appContext.getBuildProfileOpt();
       buildProfileOpt.app.signingConfigs = configs;
+      for (const product of buildProfileOpt.app.products) {
+        if (!configs.some(config => config.name === product.signingConfig)) {
+          delete product.signingConfig;
+        }
+      }
       appContext.setBuildProfileOpt(buildProfileOpt);
     }
   };

@@ -41,10 +41,20 @@ For your own signed installation, run `scripts/setup-signing.sh` once, then `scr
 
 Regression tests cover the real upstream search worker, repeated database opening/closing, concurrent workers, process termination, lifecycle races, file cleanup and limits, bridge origins and redaction across log chunks. GitHub CI runs on Node 22.19 / 24. HAP builds additionally validate ArkTS/C++ compilation, archive integrity, runtime hashes, ELF permissions and accidental private files. See the [validation record](docs/RELEASE-VALIDATION.md) for the actual tested scope.
 
-## Implementation and licensing
+## Implementation
 
 ArkTS manages a local service through a native process host. Bundled executables inherit app permissions via their ELF permission sections. Kimi assets and Python standard libraries are installed from resfile resources. Compatibility code lives in `runtime/` and `entry/src/main/cpp/compat/`; versions and checksums are pinned in `scripts/versions.env`.
 
-The project was initially developed with assistance from Claude (Anthropic), then continued by kimi-k3; the original credits are retained. The wrapper uses the [MIT license](LICENSE); bundled components keep their own [licenses](THIRD-PARTY-NOTICES.md). This project is not affiliated with or maintained by Moonshot AI or Huawei.
+## Contributors and AI assistance
+
+The maintainer leads the project with development assistance from these AI tools:
+
+- **Claude (Anthropic)**: assisted with the initial port and development.
+- **kimi-k3**: continued development and improvements.
+- **[Codex (OpenAI)](https://github.com/codex)**: assisted with 0.2.0 stability fixes, regression tests, build and release improvements, and GitHub release verification.
+
+## Licensing and feedback
+
+The wrapper uses the [MIT license](LICENSE); bundled components keep their own [licenses](THIRD-PARTY-NOTICES.md). This project is not affiliated with or maintained by Moonshot AI or Huawei.
 
 Report reproducible issues using the repository's Bug report template. Never upload certificates, profiles, tokens or personal session archives.

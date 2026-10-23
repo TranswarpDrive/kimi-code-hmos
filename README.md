@@ -56,7 +56,15 @@ KIMI_REQUIRE_UPSTREAM=1 npm test
 - `libkimicompat.so` 处理沙箱 syscall 限制；`runtime/` 提供搜索子进程和兼容补丁。
 - 依赖版本和哈希由 `scripts/versions.env` 锁定。升级时须重新跑上游协议测试和真机验收。
 
-平台历史、架构和开发约定见 [CLAUDE.md](CLAUDE.md)、[HARMONYOS-NOTES.md](docs/HARMONYOS-NOTES.md)。原项目由 Claude（Anthropic）协助开发，后由 kimi-k3 接续；原有署名保留。
+平台历史、架构和开发约定见 [CLAUDE.md](CLAUDE.md)、[HARMONYOS-NOTES.md](docs/HARMONYOS-NOTES.md)。
+
+## 贡献者与 AI 协作
+
+本项目由维护者推进，以下 AI 工具参与开发协作：
+
+- **Claude（Anthropic）**：协助早期移植与开发。
+- **kimi-k3**：接续开发与完善。
+- **[Codex（OpenAI）](https://github.com/codex)**：协助完成 0.2.0 的稳定性修复、回归测试、构建与发布流程完善，以及 GitHub 发布验证。
 
 ## 许可与反馈
 

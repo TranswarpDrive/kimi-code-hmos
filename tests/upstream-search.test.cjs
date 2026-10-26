@@ -6,7 +6,8 @@ const path = require('node:path');
 const { once } = require('node:events');
 require('../runtime/ohos-preload.cjs');
 const { Worker } = require('node:worker_threads');
-const entry = path.resolve(__dirname, '../vendor/kimi-code/package/dist/search-worker.mjs');
+const entry = process.env.KIMI_TEST_UPSTREAM_ENTRY ? path.resolve(process.env.KIMI_TEST_UPSTREAM_ENTRY) :
+  path.resolve(__dirname, '../vendor/kimi-code/package/dist/search-worker.mjs');
 const available = fs.existsSync(entry);
 if (!available && process.env.KIMI_REQUIRE_UPSTREAM === '1') throw new Error('Fetch the pinned runtime before the upstream acceptance test');
 

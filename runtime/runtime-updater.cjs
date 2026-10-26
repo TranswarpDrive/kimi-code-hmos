@@ -249,6 +249,7 @@ function childEnvironment(context, home) {
     NPM_CONFIG_GLOBALCONFIG: `${context.npmrc}.global`,
     NPM_CONFIG_CACHE: path.join(context.root, 'npm-cache'),
     NPM_CONFIG_WORKSPACES: 'false',
+    NPM_CONFIG_BIN_LINKS: 'false',
     NPM_CONFIG_UPDATE_NOTIFIER: 'false'
   };
   for (const name of ['LD_LIBRARY_PATH', 'LD_PRELOAD', 'LANG', 'TERM', 'KIMI_HMOS_NATIVE_DIR']) {
@@ -257,11 +258,12 @@ function childEnvironment(context, home) {
   return environment;
 }
 
-function npmInstall(context, directory) {
-  const completed = spawnSync(context.nodeBinary, [
+function npmInstallArguments(context, directory) {
+  return [
     context.npmCli, 'install',
     '--prefix', directory,
     '--ignore-scripts',
+    '--no-bin-links',
     '--omit=dev',
     '--omit=optional',
     '--no-audit',
@@ -274,7 +276,11 @@ function npmInstall(context, directory) {
     `--userconfig=${context.npmrc}`,
     `--globalconfig=${context.npmrc}.global`,
     `--cache=${path.join(context.root, 'npm-cache')}`
-  ], {
+  ];
+}
+
+function npmInstall(context, directory) {
+  const completed = spawnSync(context.nodeBinary, npmInstallArguments(context, directory), {
     cwd: directory,
     env: childEnvironment(context, context.home),
     stdio: 'inherit',
@@ -531,7 +537,7 @@ async function execute(command, options, adapters = {}) {
   if (!fs.lstatSync(root).isDirectory() || fs.lstatSync(root).isSymbolicLink()) {
     throw new Error('更新目录不能是符号链接或普通文件');
   }
-  const needsNpm = command === 'check' || command === 'install';
+  const needsNpm = command !== 'restore';
   if (needsNpm && !adapters.semver) ensureNpm(options);
   const stateSemver = {
     valid: version => typeof version === 'string' && version.length <= 80 &&
@@ -556,7 +562,7 @@ async function execute(command, options, adapters = {}) {
   for (const directory of [context.home, context.tempDir, path.join(root, 'npm-cache'), path.join(root, 'xdg-cache')]) {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   }
-  const npmrc = `registry=${REGISTRY}\nignore-scripts=true\naudit=false\nfund=false\n`;
+  const npmrc = `registry=${REGISTRY}\nignore-scripts=true\nbin-links=false\naudit=false\nfund=false\n`;
   atomicWriteText(context.npmrc, npmrc);
   atomicWriteText(`${context.npmrc}.global`, npmrc);
 
@@ -619,6 +625,7 @@ module.exports = {
   PACKAGE,
   REGISTRY,
   execute,
+  npmInstallArguments,
   officialTarball,
   readState,
   validateMetadata,

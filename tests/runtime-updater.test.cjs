@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
-  PACKAGE, REGISTRY, execute, officialTarball, readState, validateMetadata, atomicWriteJson
+  PACKAGE, REGISTRY, execute, npmInstallArguments, officialTarball, readState, validateMetadata, atomicWriteJson
 } = require('../runtime/runtime-updater.cjs');
 
 const integrity = 'sha512-' + Buffer.alloc(64, 7).toString('base64');
@@ -132,6 +132,15 @@ test('official check uses the pinned registry and records a newer CLI/WebUI vers
   assert.equal(result.updateAvailable, true);
   assert.equal(JSON.parse(fs.readFileSync(path.join(h.root, 'check.json'))).updateAvailable, true);
   assert.deepEqual(snapshot(h.project), h.before);
+});
+
+test('npm install disables scripts and HarmonyOS-unsupported bin symlinks', () => {
+  const args = npmInstallArguments({ npmCli: '/npm/bin/npm-cli.js', npmrc: '/isolated/npmrc', root: '/runtime-updates' }, '/staging');
+  for (const flag of ['--ignore-scripts', '--no-bin-links', '--omit=optional', '--no-audit', '--no-fund']) {
+    assert.ok(args.includes(flag), flag);
+  }
+  assert.ok(args.includes(`--registry=${REGISTRY}`));
+  assert.equal(args[args.indexOf('--prefix') + 1], '/staging');
 });
 
 test('metadata rejects unofficial tarballs, invalid integrity and unsafe versions', () => {

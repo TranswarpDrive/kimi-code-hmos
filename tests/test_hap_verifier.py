@@ -40,6 +40,13 @@ class ArchiveRejectionTests(unittest.TestCase):
     def test_missing_runtime_is_rejected(self):
         self.reject(["module.json"], "Missing required files")
 
+    def test_extensionless_native_files_cannot_reintroduce_signer_incompatibility(self):
+        for name in ["node", "python3", "rg", "git", "git-remote-https"]:
+            self.reject(["libs/arm64-v8a/" + name], "may be skipped by older code signers")
+        self.reject(["libs/arm64-v8a/old.version/node"], "may be skipped by older code signers")
+        for name in ["node.bin", "python3.bin", "libssl.so.3"]:
+            self.reject(["libs/arm64-v8a/" + name], "Missing required files")
+
     def test_corrupt_zip_data_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             archive = pathlib.Path(directory) / "corrupt.hap"

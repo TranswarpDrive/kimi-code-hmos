@@ -37,7 +37,7 @@ An unofficial HarmonyOS PC port of [Kimi Code](https://www.kimi.com/code). It bu
 | File exports | Session ZIPs and browser-generated files are limited to 32 MiB per download |
 | Upgrades | Keep the same signing certificate and install in place; uninstalling removes the app's login state and sessions |
 
-This is a public preview. Version 0.2.0 was tested on a MOR-M1 running API 26; the 0.2.1 icon update has passed build and automated checks but has not been retested on a device. Other devices, fresh installations and extended use still need further testing. See the [validation record](docs/RELEASE-VALIDATION.md) for the exact coverage.
+This is a public preview. The GitHub download is currently 0.2.1. The source tree contains a 0.2.2 candidate that addresses files skipped by older signing tools; re-signing and installation on the reported device still need testing. Version 0.2.0 was tested on a MOR-M1 running API 26. Other devices, fresh installations and extended use need further testing. See the [validation record](docs/RELEASE-VALIDATION.md) for the exact coverage.
 
 Found a problem? [Open an issue](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml) with your system version, signing tool and steps to reproduce it. Remove credentials and private conversations from logs before attaching them.
 

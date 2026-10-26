@@ -16,7 +16,7 @@
 | kimi 来源 | npm `@moonshot-ai/kimi-code`（纯 JS，Node ≥22.19） | 官方二进制是 Node SEA，只有 darwin/linux(glibc)/win32，无鸿蒙版 |
 | Node 运行时 | [hqzing/ohos-node](https://github.com/hqzing/ohos-node) v24.x（官方源码 `--dest-os=openharmony` 交叉编译） | Harmonybrew 生态通用的鸿蒙版 Node；可按其 build.sh 自行复现 |
 | 运行方式 | 子进程（fork+execve），不在进程内嵌 libnode | 2in1 允许执行包内 bin；崩溃隔离、可重启 |
-| node 分发 | `libs/arm64-v8a/node` + `executableBinaryPaths` + ELF `.permission`（INHERIT_PARENT_PERMISSION） | 只有这样 node 才能继承应用的 JIT/联网权限；HNP 里的二进制拿不到 |
+| node 分发 | `libs/arm64-v8a/node.bin` + `executableBinaryPaths` + ELF `.permission`（INHERIT_PARENT_PERMISSION） | `.bin` 后缀兼容旧版重签器；随包 node 继承应用的 JIT/联网权限 |
 | kimi JS 分发 | `resources/resfile/kimicode`（安装时解压为真实文件） | 早期用私有 HNP；改 resfile 是为兼容小白调试助手等重签工具 |
 | 对外分发 | 未签名 HAP + 接收方用 HoKit/小白调试助手以自己账号重签侧载，仅 API 26 | 不上架；个人开发者拿不到随包 ELF 的“二进制证书” |
 | 签名 | `devecocli auth login` + `devecocli signature generate`（调试证书+调试 Profile） | 官方命令行自动签名；侧载不需要上架用的“二进制证书” |

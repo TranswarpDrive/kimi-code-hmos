@@ -58,26 +58,28 @@ add_permission_section() { # <elf>
 }
 
 # --- node → entry/libs/arm64-v8a/ ---------------------------------------------
-install -m 0755 "$NODE_SRC/bin/node" "$LIBS_OUT/node"
-add_permission_section "$LIBS_OUT/node"
-log "node $NODE_VERSION → entry/libs/arm64-v8a/node（含 .permission）  $(du -h "$LIBS_OUT/node" | cut -f1)"
+# 旧版 C++ hap 签名器先检查路径中是否有点号，无扩展名会被静默漏签。
+# .bin 只改变包内文件名；运行时用标准命令名的 shell 脚本启动原始已签名文件。
+install -m 0755 "$NODE_SRC/bin/node" "$LIBS_OUT/node.bin"
+add_permission_section "$LIBS_OUT/node.bin"
+log "node $NODE_VERSION → entry/libs/arm64-v8a/node.bin（含 .permission）  $(du -h "$LIBS_OUT/node.bin" | cut -f1)"
 
 # --- rg / git → entry/libs/arm64-v8a/，git 数据与许可证 → resfile ------------
-install -m 0755 "$RG_SRC" "$LIBS_OUT/rg"
-add_permission_section "$LIBS_OUT/rg"
+install -m 0755 "$RG_SRC" "$LIBS_OUT/rg.bin"
+add_permission_section "$LIBS_OUT/rg.bin"
 GIT_BIN_NAMES=(git git-upload-pack git-receive-pack git-upload-archive git-shell)
 for name in "${GIT_BIN_NAMES[@]}"; do
-  install -m 0755 "$GIT_SRC/bin/$name" "$LIBS_OUT/$name"
-  add_permission_section "$LIBS_OUT/$name"
+  install -m 0755 "$GIT_SRC/bin/$name" "$LIBS_OUT/$name.bin"
+  add_permission_section "$LIBS_OUT/$name.bin"
 done
-install -m 0755 "$GIT_SRC/libexec/git-core/git-remote-https" "$LIBS_OUT/git-remote-https"
-add_permission_section "$LIBS_OUT/git-remote-https"
+install -m 0755 "$GIT_SRC/libexec/git-core/git-remote-https" "$LIBS_OUT/git-remote-https.bin"
+add_permission_section "$LIBS_OUT/git-remote-https.bin"
 mkdir -p "$KIMI_OUT/git" "$KIMI_OUT/licenses/ripgrep"
 cp -R "$GIT_SRC/share" "$KIMI_OUT/git/"
 cp "$GIT_SRC/licenses.txt" "$KIMI_OUT/licenses/git.licenses.txt"
 cp "$ROOT/runtime/licenses/ripgrep/LICENSE-MIT" "$ROOT/runtime/licenses/ripgrep/UNLICENSE" \
   "$KIMI_OUT/licenses/ripgrep/"
-log "rg $(du -h "$LIBS_OUT/rg" | cut -f1) + git ${GIT_VERSION}（含 remote-https、share、许可证）已加入随包 bin"
+log "rg $(du -h "$LIBS_OUT/rg.bin" | cut -f1) + git ${GIT_VERSION}（含 remote-https、share、许可证）已加入随包 bin"
 
 # --- Python：ELF 平铺进 libs 签名，纯 Python 标准库放 resfile -------------------
 PY_LIB_NAMES=(
@@ -85,9 +87,9 @@ PY_LIB_NAMES=(
   libintl.so.8 liblzma.so.5 libncursesw.so.6 libpanelw.so.6 libreadline.so.8
   libsqlite3.so libssl.so.3 libuuid.so.1 libz.so.1 libzstd.so.1
 )
-python_native_files=(python3)
-install -m 0755 "$PY_SRC/bin/python3.14" "$LIBS_OUT/python3"
-add_permission_section "$LIBS_OUT/python3"
+python_native_files=(python3.bin)
+install -m 0755 "$PY_SRC/bin/python3.14" "$LIBS_OUT/python3.bin"
+add_permission_section "$LIBS_OUT/python3.bin"
 for name in "${PY_LIB_NAMES[@]}"; do
   install -m 0755 "$PY_SRC/lib/$name" "$LIBS_OUT/$name"
   python_native_files+=("$name")
@@ -124,6 +126,8 @@ find "$KIMI_OUT" -name '.*' -prune -exec rm -rf {} +
 find "$KIMI_OUT" -type f \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' \) -delete
 find "$KIMI_OUT" -type d -exec chmod 0755 {} +
 find "$KIMI_OUT" -type f -exec chmod 0644 {} +
+# 启动脚本必须随包安装到只读目录，并在 ZIP 中保留可执行位；不能在可写 filesDir 中临时生成。
+node "$ROOT/scripts/runtime-commands.cjs" "$KIMI_OUT/bin"
 log "kimi-code $KIMI_CODE_VERSION → resources/resfile/kimicode  $(du -sh "$KIMI_OUT" | cut -f1)（$(find "$KIMI_OUT" -type f | wc -l | tr -d ' ') 个文件）"
 
 # --- ArkTS 侧的版本常量 ---------------------------------------------------------

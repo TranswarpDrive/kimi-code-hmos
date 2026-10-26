@@ -228,7 +228,7 @@ export class KimiServer {
   }
 
   get nodePath(): string {
-    return `${this.libDir}/node`;
+    return `${this.libDir}/node.bin`;
   }
 
   /** 默认工作目录：优先用户选择，其次“文档”，最后回退到应用沙箱 */
@@ -556,15 +556,19 @@ export class KimiServer {
       `${this.kimiRoot}/package/dist/main.mjs`,
       `${this.kimiRoot}/package/dist/search-worker.mjs`,
       `${this.kimiRoot}/runtime/ohos-preload.cjs`,
+      `${this.kimiRoot}/bin/node`,
+      `${this.kimiRoot}/bin/python3`,
+      `${this.kimiRoot}/bin/git`,
+      `${this.kimiRoot}/bin/rg`,
       `${this.kimiRoot}/runtime/process-worker.cjs`,
       `${this.kimiRoot}/runtime/worker-child.cjs`,
-      `${this.libDir}/python3`,
-      `${this.libDir}/git`,
-      `${this.libDir}/rg`
+      `${this.libDir}/python3.bin`,
+      `${this.libDir}/git.bin`,
+      `${this.libDir}/rg.bin`
     ];
     for (const path of required) {
       if (!pathExists(path)) {
-        throw new Error(`内置运行时缺失：${path}\n请确认 HAP 包含 libs/arm64-v8a/node 与 resources/resfile/kimicode，并已完整安装。`);
+        throw new Error(`内置运行时缺失：${path}\n请确认安装包完整，并尝试覆盖安装。`);
       }
     }
   }
@@ -583,8 +587,10 @@ export class KimiServer {
 
   private buildEnv(): string[] {
     const ctx = this.context as common.UIAbilityContext;
+    // 只读安装目录中的命令启动脚本执行已签名 .bin；可写沙箱中的脚本不可执行。
+    const commandDir = `${this.kimiRoot}/bin`;
     const path = [
-      this.libDir,
+      commandDir,
       '/data/app/bin',
       '/data/service/hnp/bin',
       '/system/bin',
@@ -595,7 +601,8 @@ export class KimiServer {
       `TMPDIR=${ctx.tempDir}`,
       `XDG_CACHE_HOME=${ctx.cacheDir}`,
       `PATH=${path}`,
-      `GIT_EXEC_PATH=${this.libDir}`,
+      `GIT_EXEC_PATH=${commandDir}`,
+      `KIMI_HMOS_NATIVE_DIR=${this.libDir}`,
       `GIT_TEMPLATE_DIR=${this.kimiRoot}/git/share/git-core/templates`,
       `PYTHONHOME=${this.kimiRoot}/python`,
       `PYTHONPATH=${this.libDir}:${this.kimiRoot}/python/lib/python3.14:${this.kimiRoot}/python/lib/python3.14/site-packages`,

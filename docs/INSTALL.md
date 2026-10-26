@@ -4,7 +4,9 @@
 
 ## 下载
 
-从 [GitHub Releases](https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.1) 下载 `*-release-unsigned.hap`，**只需要这一个文件**。这是未签名安装包，需要用自己的华为开发者账号签名后安装。
+从 [GitHub Releases](https://github.com/TranswarpDrive/kimi-code-hmos/releases) 下载 `*-release-unsigned.hap`，**只需要这一个文件**。这是未签名安装包，需要用自己的华为开发者账号签名后安装。
+
+0.2.2 当前为本地修复候选，尚未替换公开的 0.2.1。收到修复候选包时，直接导入该 HAP 重签；实际测试范围见[验证记录](RELEASE-VALIDATION.md)。
 
 `SHA256SUMS` 仅用于可选的完整性校验，不参与签名或安装。
 
@@ -26,7 +28,7 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 ## 首次安装
 
 1. 在鸿蒙电脑开启开发者模式和 USB/无线调试，允许连接设备的电脑进行调试。
-2. 使用支持鸿蒙 PC 随包二进制签名的工具，例如项目此前验证过的 [HoKit](https://github.com/yabi-zzh/HoKit)，登录**自己的**华为开发者账号。
+2. 使用支持鸿蒙 PC 随包二进制签名的工具，例如 [HoKit 桌面版](https://github.com/yabi-zzh/HoKit)，登录**自己的**华为开发者账号。手机端与桌面端的签名实现不同，不能把其中一个版本的测试结果当作另一个版本的保证。
 3. 导入未签名 HAP，使用工具生成的证书和本设备 Profile 签名、安装。Profile 必须包含包内声明的 ACL，尤其是 `ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY`（JIT）与 `ohos.permission.FILE_ACCESS_PERSIST`（目录持久授权）。不要用删除权限声明的方法绕过签名失败。
 4. 启动 Kimi Code，允许所需的“文档”“下载”和后台运行权限。首次加载需要解压运行时并启动服务。
 5. 登录时在系统浏览器完成 Kimi 设备码授权，回到应用。授权由 Kimi 服务轮询确认。
@@ -47,8 +49,9 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 | 现象 | 处理 |
 |---|---|
 | 设备类型/API 不支持 | 确认是鸿蒙 PC 2in1、API 26；模拟器专用包不用于分发 |
+| 签名完成，但安装提示 `signCode` / 9568393 | 0.2.1 及更早的包可能被旧版 C++ 签名器漏签部分程序。0.2.2 已调整文件命名以规避；导入新版原始未签名包重新签名。仍失败时保留错误日志，换桌面版作对照，勿反复清理证书或卸载。详见[签名兼容性说明](SIGNING-COMPATIBILITY.md) |
 | 安装提示 ACL、Profile 或代码签名错误 | 检查 Profile 绑定的设备、上述 ACL，以及工具是否给所有随包 ELF 签名 |
-| 启动失败、信号退出 | 打开“查看日志”；检查 JIT ACL。0.2.1 不再把无法联网的 jitless 模式显示为可用 |
+| 启动失败、信号退出 | 打开“查看日志”；检查 JIT ACL。当前版本不再把无法联网的 jitless 模式显示为可用 |
 | 工作目录无法访问 | 重新选择目录并授权；冷启动恢复授权失败时会提示并使用默认目录 |
 | 保存下载失败 | 检查“下载”目录权限和剩余空间。会话 ZIP、blob 下载上限 32 MiB，超限请缩小导出范围 |
 | 搜索暂时没有结果 | 首次建立索引可能需要时间；仍失败时查看日志并重启服务 |

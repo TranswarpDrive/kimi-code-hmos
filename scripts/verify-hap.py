@@ -10,9 +10,11 @@ import sys
 import zipfile
 
 RESOURCE = "resources/resfile/kimicode/"
+COMMANDS = ["node", "python3", "rg", "git", "git-upload-pack", "git-receive-pack",
+            "git-upload-archive", "git-shell", "git-remote-https"]
 REQUIRED = [
-    "module.json", "libs/arm64-v8a/node", "libs/arm64-v8a/python3",
-    "libs/arm64-v8a/rg", "libs/arm64-v8a/git", "libs/arm64-v8a/git-remote-https",
+    "module.json", "libs/arm64-v8a/node.bin", "libs/arm64-v8a/python3.bin",
+    "libs/arm64-v8a/rg.bin", "libs/arm64-v8a/git.bin", "libs/arm64-v8a/git-remote-https.bin",
     "libs/arm64-v8a/libkimihost.so", "libs/arm64-v8a/libkimicompat.so",
     "libs/arm64-v8a/libc++_shared.so",
 ] + [RESOURCE + name for name in [
@@ -21,7 +23,7 @@ REQUIRED = [
     "python/lib/python3.14/os.py", "python/lib/python3.14/ssl.py",
     "licenses/node.LICENSE", "licenses/git.licenses.txt", "licenses/python.licenses.txt",
     "licenses/ripgrep/LICENSE-MIT", "package/LICENSE",
-]]
+]] + [RESOURCE + "bin/" + name for name in COMMANDS]
 
 
 def require(condition, message):
@@ -65,6 +67,11 @@ def verify(hap, release=False, product="default"):
                 # Python/certifi 的公开 CA 证书是 HTTPS 所必需的；应拦截私钥而非所有 PEM。
                 require(b"PRIVATE KEY-----" not in archive.read(name), f"Sensitive file: {name}")
         require(archive.testzip() is None, "ZIP CRC check failed")
+        # 旧版 C++ IsNativeFile 会静默跳过路径中不含点号的文件。
+        # 要求文件名本身有后缀，不能靠父目录带点号偶然通过。
+        for name in names:
+            if name.startswith("libs/") and not name.endswith("/"):
+                require(bool(pathlib.PurePosixPath(name).suffix), f"Native file may be skipped by older code signers: {name}")
         require(all(name in counts for name in REQUIRED), "Missing required files: " + ", ".join(name for name in REQUIRED if name not in counts))
         module = json.loads(archive.read("module.json"))
         app = module["app"]
@@ -80,7 +87,12 @@ def verify(hap, release=False, product="default"):
         require("ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY" in permissions, "Missing JIT permission")
         binaries = [item["path"] for item in config["executableBinaryPaths"]]
         require(len(set(binaries)) == len(binaries), "Duplicate executable declarations")
-        require(all("libs/arm64-v8a/" + name in binaries for name in ["node", "python3", "rg", "git", "git-remote-https"]), "Missing executable declarations")
+        expected_binaries = {"libs/arm64-v8a/" + name + ".bin" for name in COMMANDS}
+        require(set(binaries) == expected_binaries, "Missing or unexpected executable declarations")
+        for name in COMMANDS:
+            launcher = RESOURCE + "bin/" + name
+            require(archive.getinfo(launcher).external_attr >> 16 & 0o111, f"Command launcher is not executable: {name}")
+            require(archive.read(launcher).startswith(b"#!/system/bin/sh\n"), f"Invalid command launcher: {name}")
         for name in binaries:
             require(name in counts, f"Missing executable: {name}")
             sections = elf_sections(archive.read(name))
@@ -98,6 +110,7 @@ def verify(hap, release=False, product="default"):
             listed.add(name)
             require(hashlib.sha256(archive.read(name)).hexdigest() == item["sha256"], f"Runtime checksum mismatch: {name}")
         require(set(binaries) <= listed, "Some executables are missing from the runtime manifest")
+        require({RESOURCE + "bin/" + name for name in COMMANDS} <= listed, "Command launchers missing from runtime manifest")
         require(any("/_ssl." in name for name in listed), "Python SSL extension missing")
         require(any("/_sqlite3." in name for name in listed), "Python SQLite extension missing")
         require(any("/libssl.so" in name for name in listed), "Python SSL native library missing")

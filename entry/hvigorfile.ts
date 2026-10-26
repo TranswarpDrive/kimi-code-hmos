@@ -6,14 +6,14 @@ import { HvigorNode, HvigorPlugin } from '@ohos/hvigor';
 
 // 由 scripts/stage-runtime.sh 生成；hvigor 自己不会把它们打进 HAP
 const EXECUTABLES: string[] = [
-  'libs/arm64-v8a/node',
-  'libs/arm64-v8a/rg',
-  'libs/arm64-v8a/git',
-  'libs/arm64-v8a/git-upload-pack',
-  'libs/arm64-v8a/git-receive-pack',
-  'libs/arm64-v8a/git-upload-archive',
-  'libs/arm64-v8a/git-shell',
-  'libs/arm64-v8a/git-remote-https'
+  'libs/arm64-v8a/node.bin',
+  'libs/arm64-v8a/rg.bin',
+  'libs/arm64-v8a/git.bin',
+  'libs/arm64-v8a/git-upload-pack.bin',
+  'libs/arm64-v8a/git-receive-pack.bin',
+  'libs/arm64-v8a/git-upload-archive.bin',
+  'libs/arm64-v8a/git-shell.bin',
+  'libs/arm64-v8a/git-remote-https.bin'
 ];
 const PYTHON_NATIVE_MANIFEST: string = 'libs/python-native-files.txt';
 // 由 scripts/stage-runtime.sh 生成的 kimi-code 包，路径同时也是它在 HAP 中的条目前缀
@@ -23,7 +23,8 @@ const RESFILE_DIR: string = 'resources/resfile/kimicode';
  * 在 PackageHap 之后、PackingCheck/SignHap 之前，把可执行文件与清单中的 Python 原生文件
  * 补进未签名 HAP：hvigor 只收 libs 下的 .so，官方的 collectAllLibs 方案又会 strip 掉 .permission 节，
  * 所以原样注入（compressNativeLibs=true，用 deflate 压缩）。
- * 之后的 SignHap（或接收方的重签工具）会用 hap-sign-tool 对 libs/ 下所有条目做代码签名。
+ * 使用 .bin 后缀兼容旧版 C++ 签名器：它会跳过路径中不含点号的条目。
+ * 之后的 SignHap（或接收方的重签工具）对这些 libs/ 条目做代码签名。
  */
 function runtimeInjectPlugin(): HvigorPlugin {
   return {

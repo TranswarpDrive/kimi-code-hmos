@@ -102,34 +102,34 @@
     "compressNativeLibs": true,
     // 2in1「应用程序包集成 bin 文件」（API 24+）。bin 的权限写在它自己的 ELF .permission 节里：
     // 所有随包 bin 声明 INHERIT_PARENT_PERMISSION，被本应用拉起时继承 JIT、联网等 system_grant 权限。
-    // node、python3、rg、git 及必要的 helper 由 scripts/stage-runtime.sh 加好 .permission 节后放到 entry/libs/arm64-v8a/
+    // .bin 后缀避免旧版 C++ 重签工具漏签；标准命令名通过 resfile/bin 中的只读脚本调用。
     "executableBinaryPaths": [
       {
-        "path": "libs/arm64-v8a/node"
+        "path": "libs/arm64-v8a/node.bin"
       },
       {
-        "path": "libs/arm64-v8a/python3"
+        "path": "libs/arm64-v8a/python3.bin"
       },
       {
-        "path": "libs/arm64-v8a/rg"
+        "path": "libs/arm64-v8a/rg.bin"
       },
       {
-        "path": "libs/arm64-v8a/git"
+        "path": "libs/arm64-v8a/git.bin"
       },
       {
-        "path": "libs/arm64-v8a/git-upload-pack"
+        "path": "libs/arm64-v8a/git-upload-pack.bin"
       },
       {
-        "path": "libs/arm64-v8a/git-receive-pack"
+        "path": "libs/arm64-v8a/git-receive-pack.bin"
       },
       {
-        "path": "libs/arm64-v8a/git-upload-archive"
+        "path": "libs/arm64-v8a/git-upload-archive.bin"
       },
       {
-        "path": "libs/arm64-v8a/git-shell"
+        "path": "libs/arm64-v8a/git-shell.bin"
       },
       {
-        "path": "libs/arm64-v8a/git-remote-https"
+        "path": "libs/arm64-v8a/git-remote-https.bin"
       }
     ]
   }

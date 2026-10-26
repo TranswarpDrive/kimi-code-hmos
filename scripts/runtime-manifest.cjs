@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { COMMANDS } = require('./runtime-commands.cjs');
 const root = path.resolve(__dirname, '..');
 const resource = 'resources/resfile/kimicode';
 const staged = path.join(root, 'entry/src/main', resource);
@@ -20,6 +21,7 @@ const required = [
   'package/dist/main.mjs', 'package/dist/search-worker.mjs', 'package/package.json',
   'package/node_modules/ws/package.json', 'package/node_modules/qrcode/package.json',
   'python/lib/python3.14/os.py', 'python/lib/python3.14/ssl.py',
+  ...COMMANDS.map(name => `bin/${name}`),
   ...fs.readdirSync(path.join(staged, 'runtime')).map(file => `runtime/${file}`)
 ];
 for (const file of required) add(path.join(staged, file), `${resource}/${file}`);

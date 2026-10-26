@@ -6,6 +6,8 @@
 |---|---|---|
 | Kimi Code | @moonshot-ai/kimi-code 2.2.0，npm registry | package/LICENSE（MIT） |
 | Node.js | 24.21.0，[hqzing/ohos-node](https://github.com/hqzing/ohos-node) | licenses/node.LICENSE |
+| npm | 11.19.0，来自上述 Node 发行包 | npm.tar.gz 内的 npm/LICENSE（Artistic-2.0） |
+| tar 及解压依赖 | tar 7.5.19、@isaacs/fs-minipass、chownr、minipass、minizlib、yallist，来自上述 Node 发行包 | npm-extract/node_modules/ 下各包许可文件 |
 | Git 及依赖 | 2.55.0，[Harmonybrew/ohos-git](https://github.com/Harmonybrew/ohos-git) | licenses/git.licenses.txt（含 GPL v2 等） |
 | Python 及依赖 | 3.14.6，[Harmonybrew/ohos-python](https://github.com/Harmonybrew/ohos-python) | licenses/python.licenses.txt |
 | ripgrep | dsh-harmonyos 0.15.0 固定提交的 rg 13.0.0 | licenses/ripgrep/LICENSE-MIT、UNLICENSE |

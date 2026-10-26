@@ -11,13 +11,17 @@
 
 ```
 EntryAbility (ArkTS)
+ ├─ RuntimeUpdates.ets ── node.bin + runtime-updater.cjs
+ │      └─ 官方 npm 检查/下载/校验 → <filesDir>/runtime-updates 候选目录 → 原子激活/回滚
+ │         npm.tar.gz 与 tar 解压模块随包；安装器首次使用才解压，更新不进入用户项目执行 npm
  ├─ KimiServer.ets ── libkimihost.so (NAPI: fork+execve / kill / waitpid 线程 / nativeLibDir)
- │      └─ 子进程: <libs>/node  --require <kimi>/runtime/ohos-preload.cjs
- │                  <kimi>/package/dist/main.mjs web --no-open --port <p> --web-title "Kimi Code"
+ │      └─ 子进程: <libs>/node.bin  --require <kimi>/runtime/ohos-preload.cjs
+ │                  <package>/dist/main.mjs web --no-open --port <p> --web-title "Kimi Code"
  │         <libs> = /data/storage/el1/bundle/libs/arm64（node、python3、rg、git/helper 与 Python 原生库）
  │         <kimi> = <context.resourceDir>/kimicode（resfile 安装时解压出的只读文件）
+ │         <package> = 随包 <kimi>/package，或已校验的 runtime-updates/versions/<ver>/.../kimi-code
  │         随包 bin 的 ELF .permission 节声明 INHERIT_PARENT_PERMISSION → 继承应用的 JIT、联网权限
- │         env: HOME=<filesDir>/home  PATH=<libs>:...  GIT_EXEC_PATH=<libs>
+ │         env: HOME=<filesDir>/home  PATH=<kimi>/bin:...  GIT_EXEC_PATH=<kimi>/bin
  │              GIT_TEMPLATE_DIR=<kimi>/git/share/git-core/templates
  │              PYTHONHOME=<kimi>/python  PYTHONPATH=<libs>:<kimi>/python/lib/python3.14:...
  │              PYTHONPYCACHEPREFIX=<cacheDir>/python-pycache  TERMINFO=<kimi>/python/share/terminfo
@@ -26,12 +30,14 @@ EntryAbility (ArkTS)
  └─ pages/Index.ets ── ArkWeb 加载 http://127.0.0.1:<p>/#token=<server.token>
         ├─ document-start 注入脚本接管外链、blob 下载与 blob 文件预览
         ├─ onShowFileSelector + DocumentViewPicker 处理上传；WebDownloadDelegate/Base64 处理下载
-        ├─ 原生工具栏：工作目录选择、重启服务、查看日志（token 脱敏）
+        ├─ 原生工具栏：工作目录选择、运行时更新、重启服务、查看日志（token 脱敏）
         ├─ onLoadIntercept 兜底主框架外链
         └─ 外链(含 OAuth 设备码授权页) → UIAbilityContext.openLink → 系统默认浏览器
 ```
 
 - 不用 HNP：重签工具对带 HNP 的 HAP 支持不稳定；resfile 是标准资源目录，任何工具都不会动它。
+- 运行时更新固定使用官方 npm registry，CLI 与 WebUI 同版本整体更新；隔离 npm 配置并禁用安装脚本和 bin 软链接（沙箱会拒绝 `.bin` symlink）。候选包通过完整性、结构和 CLI 冒烟后才原子激活，首次启动失败回滚，HOME、项目、会话和目录授权不变。恢复随包不依赖 npm；激活/提交/回滚仍使用完整 npm semver。
+- `npm.tar.gz` 与 `npm-extract/` 来自锁定的 Node 发行包；更新时先校验归档再解压到应用私有目录。HAP 校验同时检查归档内部路径、类型、重复项与展开大小。
 - kimi 登录是 OAuth 设备码流程：服务端轮询 token，浏览器授权后无需回跳应用。
 - `server.token` 由 kimi 首次启动生成在 `$HOME/.kimi-code/server.token`（0600），壳读取它拼 URL。
 - 就绪探测：`GET /api/v1/healthz`（免鉴权）。node 启动即崩（SIGTRAP 等）时提示检查 JIT ACL；不再启用无法联网的 `--jitless` 降级。
@@ -41,14 +47,14 @@ EntryAbility (ArkTS)
 | 路径 | 说明 |
 |---|---|
 | `AppScope/` | 应用级配置（bundleName `com.kimicodehmos.app`） |
-| `entry/src/main/ets/kimi/` | 服务管理、外链、Web 桥、文件上传下载与目录选择、权限、长时任务、崩溃日志诊断 |
+| `entry/src/main/ets/kimi/` | 服务与运行时更新管理、外链、Web 桥、文件上传下载与目录选择、权限、长时任务、崩溃日志诊断 |
 | `entry/src/main/cpp/` | NAPI `libkimihost.so`、LD_PRELOAD 兼容层 `compat/ohos_compat.c` → `libkimicompat.so` |
 | `entry/hvigorfile.ts` | `InjectRuntime` 任务：PackageHap 后注入可执行 bin 与清单中的 Python 原生文件，并把 resfile 条目改为 deflate |
 | `hvigorfile.ts` | 构建时注入本机签名配置 `signing/*.local.json` |
 | `build-profile.json5` | 产品 `default`（分发，只支持 API 26）与 `emulator`（模拟器自测，兼容 API 24） |
-| `runtime/` | node 预加载补丁、搜索子进程适配与调试追踪；硬链接失败保留原错误，禁止非原子复制回退 |
+| `runtime/` | node 预加载补丁、搜索子进程适配、官方运行时更新器与调试追踪；硬链接失败保留原错误，禁止非原子复制回退 |
 | `runtime/bin-permission.json` | 写进可执行 bin `.permission` 节的权限声明 |
-| `runtime/kimi-deps/` | kimi 运行时依赖（ws、qrcode）的锁定清单 |
+| `runtime/kimi-deps/` | 随包 kimi 运行时依赖的锁定清单；设备自更新由随包 npm 解析新版依赖 |
 | `scripts/` | `fetch-deps.sh` / `stage-runtime.sh` / `setup-signing.sh` / `build.sh` / `install.sh` / `emulator.sh` |
 | `scripts/versions.env` | 锁定的 Node、kimi-code、git、Python、ripgrep 版本与校验值 |
 | `vendor/`、`entry/libs/`、`entry/src/main/resources/resfile/kimicode/`、`dist/` | 生成物，均不入库 |
@@ -97,4 +103,4 @@ hdc shell "hilog -T KimiShell"               # 壳日志 + 转发的 node 输出
 - 版本：`AppScope/app.json5` 的 `versionName` 是壳版本；内置 kimi-code / node 版本记在 `scripts/versions.env`。
 - Git：`main` 分支，小步提交，提交信息用中文说明“做了什么/为什么”；生成物和本机签名不入库。
 - 发布构建默认 release；`KIMI_UNSIGNED_ONLY=1` 忽略本机签名配置。发布前运行 `npm run check`、带上游包的 `npm test`、完整构建及 `verify-hap.py`，实际设备范围记录到 `docs/RELEASE-VALIDATION.md`。公开附件由 `prepare-release.py` 整理，不能直接上传整个 dist。
-- 升级 kimi-code：改 `scripts/versions.env` 的版本与 integrity → `scripts/build.sh` → 真机回归（登录、对话、Shell 工具、重启后稳定性）。
+- 设备自更新只替换已校验的 kimi-code JavaScript 包，不修改 `scripts/versions.env` 中的随包基线，也不替换 Node 等原生文件。发布新的随包 kimi-code 时仍改版本与 integrity → `scripts/build.sh` → 真机回归（登录、对话、Shell 工具、重启后稳定性）。

@@ -1,6 +1,6 @@
 {
   "name": "kimi-code-hmos",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "description": "HarmonyOS PC shell regression tests and release tooling",
   "engines": { "node": ">=22.19.0" },

@@ -43,3 +43,6 @@
 # macOS
 .DS_Store
 /tools/icon-preview.png
+
+# 图像生成原始输出；选定母版保存在 tools/artwork/
+/generated_images/

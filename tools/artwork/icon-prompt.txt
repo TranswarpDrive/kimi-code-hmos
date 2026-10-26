@@ -1,7 +1,39 @@
-Generated with the built-in image_gen tool, 2026-10-23.
-Reference: https://moonshotai.github.io/Branding-Guide/
-Final selected master: icon-master.png. The first transparent draft was discarded.
-The artwork represents an unofficial community port; it is not an official joint product logo.
+Generated with image_gen, 2026-10-26.
 
-Final prompt:
-Use case: logo-brand. Create the final production square icon for Kimi Code on HarmonyOS PC. Reference 1 gives the Kimi identity: white K with straight vertical stem, diagonal upper stroke, gently swooping lower stroke, and blue teardrop. Reference 2 gives the surrounding blue-cyan HarmonyOS-inspired orbit composition, but its transparency is broken and its missing K must be restored. OUTPUT A FULLY OPAQUE IMAGE: a uniform matte near-black #101319 square from edge to edge, without rounded outer corners. Center a brilliant solid opaque white K in the shape of reference 1. Surround it with a single clean slim circular blue-to-cyan ring, opening at the upper right to make room for Kimi's small blue teardrop. Make the white K the most visible feature. All emblem artwork fits in the center 66% of the square with equal generous dark padding; K itself about 40% of the square. Clean flat logo design with flawlessly smooth geometry and crisp antialiasing. No distressed edges, no grain, no speckles, no neon haze, no bevel, no 3D, no shadows, no checkerboard, no transparency, no photographic background, no tile border, no extra text beyond the white K, no Huawei flower logo, no watermark. Single polished icon, legible at 32px. Preserve the intended K-and-orbit composition while fixing the clean rendering. Square 1024x1024.
+Purpose: replacement application icon for the unofficial community port Kimi Code for HarmonyOS.
+This is a new composite design, not an official joint logo or a byte-for-byte copy of either source.
+
+Verified source artwork:
+1. Kimi Code official VS Code marketplace icon:
+   https://github.com/MoonshotAI/kimi-code/blob/main/apps/vscode/resources/kimi-icon-storefront.png
+   Git blob SHA: 033c0f4fb2e28a9daeca0205812d15bf3e547893
+   Local reference: references/kimi-code-official.png
+2. Kimi official brand guide, original high-resolution icon and K-only vector:
+   https://moonshotai.github.io/Branding-Guide/
+   https://moonshotai.github.io/Branding-Guide/scenarios/03-icon-without-kimi/kimi-icon-right-angle.png
+   https://moonshotai.github.io/Branding-Guide/scenarios/04-k-only/k-only-dark.svg
+   Local references: references/kimi-icon-official.png, references/kimi-k-official.svg
+   Original K blue: #1783FF.
+3. Huawei official HarmonyOS wordmark:
+   https://consumer.huawei.com/en/harmonyos/
+   https://consumer.huawei.com/dam/content/dam/huawei-cbg-site/common/mkt/harmonyos/harmonyos2/img/kv/kv.svg
+   Local reference: references/harmonyos-wordmark-official.svg
+   Original underline blue in the SVG: #1F69FF.
+   The closed circular O and separate rectangular blue underline are used as visual references.
+
+Generation references: the original high-resolution Kimi icon plus a screenshot of the official Huawei wordmark.
+Design changes: place the Kimi K and blue droplet inside a closed white circle, with a separate blue underline; remove the old open blue-cyan orbit and background texture.
+The saved reference SVGs document the original geometry; the composite master is generated raster artwork, not an exact SVG composition.
+
+Master: icon-master.png.
+Resource generation: python3 tools/make-icons.py.
+Only sizing, alpha masking and PNG packaging are performed by that script.
+
+Prompt:
+Create ONE final production app icon for the user's unofficial Kimi Code for HarmonyOS app by precisely combining the two supplied OFFICIAL references. Reference 1 is the original official Kimi/Kimi Code icon, reference 2 is a screenshot of Huawei's official HarmonyOS wordmark. The user strongly requires fidelity to both, not approximate invented shapes.
+
+Use ONLY the EXACT white K and small blue droplet from reference 1 and the EXACT closed white circular O and distinct horizontal blue underline from HarmonyOS in reference 2. These are the four elements. Extract and preserve the K silhouette: upright vertical stem, sharp diagonal upper arm, a narrower lower arm sweeping outward gently to its vertical end, with the same proportions, curves and junction as reference 1. Preserve the little blue droplet's original shape and its fixed proportion and placement above/right of the K. Do not invent a generic font K. Official K blue is #1783FF. Official HarmonyOS SVG underline blue is #1F69FF.
+
+Design: deep uniform pure black background, a closed WHITE circular HarmonyOS O centered horizontally in the upper-middle, with the unmodified white K and its BLUE droplet inset inside its hollow center. Keep visible black separation between K/droplet and the white ring. Below the closed ring, place the single separate perfectly rectangular BLUE underline, square ends, centered, clearly separated from the O by black space. The ring and underline together must immediately read as the HarmonyOS O-underbar symbol. Preserve its approximate canonical ratios: original O outside diameter 139.64, hole diameter 100.674, underline width 95.676, height 18.721, gap from O bottom to underline top about 25.3. Scale that entire O/underline motif uniformly to fit the canvas. Do not use an open orbit, crescent, gradient ring, swirls, satellites, or Huawei flower.
+
+Output composition: a fully opaque square 1024 x 1024, edge-to-edge pure black background, no outer rounded corners or tile outline (the OS will mask it). Entire emblem occupies about 74% of canvas height centered optically, generous margins. O outside diameter about 560 px, centered x512, top about130; underline around x320..704 at y790..865, preserving proportions. The K plus droplet is centered inside the ring with about 288px full bounding width, scaled uniformly from its original reference. K must remain clear at icon size. Slight optical alignment to balance its diagonal is acceptable but don't deform the marks. Flat pixel-clean vector-like finish, exact smooth edges, opaque white shapes, solid color blue accents, no texture or grain (remove the speckled reference background entirely), no lighting, no glows, no 3D, no shadow, no text, no mockups, no browser UI, no watermarks. This is one usable finished app icon, not a contact sheet.

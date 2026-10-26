@@ -19,11 +19,19 @@ const libs = path.join(root, 'entry/libs/arm64-v8a');
 for (const file of fs.readdirSync(libs).sort()) add(path.join(libs, file), `libs/arm64-v8a/${file}`);
 const required = [
   'package/dist/main.mjs', 'package/dist/search-worker.mjs', 'package/package.json',
-  'package/node_modules/ws/package.json', 'package/node_modules/qrcode/package.json',
+  'package/node_modules/ws/package.json', 'package/node_modules/qrcode/package.json', 'npm.tar.gz',
   'python/lib/python3.14/os.py', 'python/lib/python3.14/ssl.py',
   ...COMMANDS.map(name => `bin/${name}`),
   ...fs.readdirSync(path.join(staged, 'runtime')).map(file => `runtime/${file}`)
 ];
 for (const file of required) add(path.join(staged, file), `${resource}/${file}`);
+function addTree(directory, prefix) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) addTree(file, `${prefix}/${entry.name}`);
+    else add(file, `${prefix}/${entry.name}`);
+  }
+}
+addTree(path.join(staged, 'npm-extract'), `${resource}/npm-extract`);
 fs.writeFileSync(path.join(staged, 'runtime-manifest.json'), JSON.stringify({ schema: 1, versions, files }, null, 2) + '\n');
 console.log(`Runtime manifest: ${files.length} files`);

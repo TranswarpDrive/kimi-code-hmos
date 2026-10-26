@@ -35,6 +35,10 @@ export class KimiHostBridge {
     this.onDownloadBlob(String(name), String(base64));
   }
 
+  setShellInfo(info: string): void {
+    this.info = info;
+  }
+
   shellInfo(): string {
     return this.info;
   }

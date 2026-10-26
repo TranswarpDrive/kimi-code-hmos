@@ -1,12 +1,16 @@
 """发布包校验的反例：危险路径、重复条目、签名材料和损坏内容必须被拒绝。"""
+import io
 import pathlib
 import runpy
+import tarfile
 import tempfile
 import unittest
 import warnings
 import zipfile
 
-VERIFY = runpy.run_path(str(pathlib.Path(__file__).resolve().parents[1] / "scripts/verify-hap.py"))["verify"]
+VERIFIER = runpy.run_path(str(pathlib.Path(__file__).resolve().parents[1] / "scripts/verify-hap.py"))
+VERIFY = VERIFIER["verify"]
+VERIFY_NPM_ARCHIVE = VERIFIER["verify_npm_archive"]
 
 
 class ArchiveRejectionTests(unittest.TestCase):
@@ -46,6 +50,35 @@ class ArchiveRejectionTests(unittest.TestCase):
         self.reject(["libs/arm64-v8a/old.version/node"], "may be skipped by older code signers")
         for name in ["node.bin", "python3.bin", "libssl.so.3"]:
             self.reject(["libs/arm64-v8a/" + name], "Missing required files")
+
+    def make_npm_archive(self, entries):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w:gz") as archive:
+            for name, data, kind in entries:
+                info = tarfile.TarInfo(name)
+                info.type = kind
+                info.size = len(data) if kind == tarfile.REGTYPE else 0
+                if kind == tarfile.SYMTYPE:
+                    info.linkname = "target"
+                archive.addfile(info, io.BytesIO(data) if info.size else None)
+        return output.getvalue()
+
+    def test_npm_archive_paths_types_duplicates_and_required_files(self):
+        required = ["npm/bin/npm-cli.js", "npm/lib/cli.js", "npm/LICENSE", "npm/package.json",
+                    "npm/node_modules/semver/package.json"]
+        entries = [("npm", b"", tarfile.DIRTYPE)] + [(name, b"test", tarfile.REGTYPE) for name in required]
+        VERIFY_NPM_ARCHIVE(self.make_npm_archive(entries))
+        for name in ["npm/../escape", "/absolute", "._npm", "npm/._cli.js"]:
+            with self.subTest(path=name):
+                unsafe = entries + [(name, b"bad", tarfile.REGTYPE)]
+                with self.assertRaisesRegex(ValueError, "Unsafe npm archive path"):
+                    VERIFY_NPM_ARCHIVE(self.make_npm_archive(unsafe))
+        with self.assertRaisesRegex(ValueError, "Duplicate npm archive entries"):
+            VERIFY_NPM_ARCHIVE(self.make_npm_archive(entries + [entries[-1]]))
+        with self.assertRaisesRegex(ValueError, "Unsupported npm archive entry"):
+            VERIFY_NPM_ARCHIVE(self.make_npm_archive(entries + [("npm/link", b"", tarfile.SYMTYPE)]))
+        with self.assertRaisesRegex(ValueError, "Missing npm archive files"):
+            VERIFY_NPM_ARCHIVE(self.make_npm_archive(entries[:-1]))
 
     def test_corrupt_zip_data_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

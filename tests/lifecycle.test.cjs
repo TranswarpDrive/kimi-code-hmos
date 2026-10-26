@@ -8,6 +8,20 @@ const tick = () => new Promise(setImmediate);
 function createServer() {
   const alive = new Set([100]);
   const timers = [];
+  const runtime = {
+    active: { version: '2.2.0', packageRoot: '/bundled', updated: false, pending: false },
+    rollbacks: 0
+  };
+  class RuntimeUpdates {
+    activeRuntime() { return { ...runtime.active }; }
+    async rollback() {
+      runtime.rollbacks++;
+      runtime.active = { version: '2.2.0', packageRoot: '/bundled', updated: false, pending: false };
+    }
+    async commit() { runtime.active.pending = false; }
+    stopNow() {}
+    init() {}
+  }
   const host = {
     kill: (pid, signal) => { if (signal === 9) alive.delete(pid); return true; },
     terminate: pid => alive.delete(pid),
@@ -17,7 +31,9 @@ function createServer() {
     '@kit.CoreFileKit': { fileIo: { accessSync: () => false, unlinkSync: noop }, fileShare: {} },
     '@kit.NetworkKit': { http: {} }, '@kit.ArkTS': { util: {} },
     'libkimihost.so': { default: host }, './Log': { Log, redactSecrets: text => text, SafeLogLines: class {} },
-    './Diagnostics': { logRecentCrashes: noop }, './RuntimeInfo': {}
+    './Diagnostics': { logRecentCrashes: noop },
+    './RuntimeInfo': { KIMI_CODE_VERSION: '2.2.0', KIMI_RESFILE_DIR: 'kimicode', NODE_VERSION: '24.21.0' },
+    './RuntimeUpdates': { RuntimeUpdates }
   }, { setTimeout: resolve => { timers.push(resolve); return timers.length; } });
   const server = new KimiServer();
   server.context = { filesDir: '/virtual' };
@@ -33,7 +49,7 @@ function createServer() {
     alive.add(this.status.pid);
     this.update(ServerPhase.READY, 'mock process started');
   };
-  return { server, alive, timers, phases: ServerPhase, launches: () => launches };
+  return { server, alive, timers, phases: ServerPhase, launches: () => launches, runtime };
 }
 
 test('overlapping restarts are serialized and superseded requests do not spawn', async () => {
@@ -72,6 +88,40 @@ test('stop after the group leader exits still waits for descendants', async () =
   h.timers.shift()();
   await stopping;
   assert.equal(h.server.processGroupPid, 0);
+});
+
+test('a newly activated runtime rolls back once when its first launch fails', async () => {
+  const h = createServer();
+  h.server.status.phase = h.phases.IDLE;
+  h.server.status.pid = 0;
+  h.server.processGroupPid = 0;
+  h.alive.clear();
+  h.runtime.active = { version: '2.3.2', packageRoot: '/updated', updated: true, pending: true };
+  let attempts = 0;
+  h.server.launch = async function () {
+    attempts++;
+    if (attempts === 1) throw new Error('new WebUI failed');
+    this.update(h.phases.READY, 'bundled runtime ready');
+  };
+  await h.server.start();
+  assert.equal(attempts, 2);
+  assert.equal(h.runtime.rollbacks, 1);
+  assert.equal(h.server.currentKimiVersion(), '2.2.0');
+  assert.equal(h.server.status.phase, h.phases.READY);
+  assert.match(h.server.status.warning, /2\.3\.2.*恢复/);
+});
+
+test('a stable updated runtime is not rolled back by an unrelated later failure', async () => {
+  const h = createServer();
+  h.server.status.phase = h.phases.IDLE;
+  h.server.status.pid = 0;
+  h.server.processGroupPid = 0;
+  h.runtime.active = { version: '2.3.2', packageRoot: '/updated', updated: true, pending: false };
+  h.server.launch = async () => { throw new Error('port unavailable'); };
+  await h.server.start();
+  assert.equal(h.runtime.rollbacks, 0);
+  assert.equal(h.runtime.active.version, '2.3.2');
+  assert.equal(h.server.status.phase, h.phases.FAILED);
 });
 
 test('stop while background startup is pending prevents a late background task', async () => {

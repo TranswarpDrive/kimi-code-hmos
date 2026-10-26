@@ -3,10 +3,12 @@
 import argparse
 import collections
 import hashlib
+import io
 import json
 import pathlib
 import struct
 import sys
+import tarfile
 import zipfile
 
 RESOURCE = "resources/resfile/kimicode/"
@@ -19,7 +21,9 @@ REQUIRED = [
     "libs/arm64-v8a/libc++_shared.so",
 ] + [RESOURCE + name for name in [
     "runtime-manifest.json", "package/dist/main.mjs", "package/dist/search-worker.mjs",
-    "runtime/ohos-preload.cjs", "runtime/process-worker.cjs", "runtime/worker-child.cjs",
+    "runtime/ohos-preload.cjs", "runtime/process-worker.cjs", "runtime/worker-child.cjs", "runtime/runtime-updater.cjs",
+    "npm.tar.gz", "npm-extract/node_modules/tar/package.json",
+    "npm-extract/node_modules/tar/dist/commonjs/index.min.js",
     "python/lib/python3.14/os.py", "python/lib/python3.14/ssl.py",
     "licenses/node.LICENSE", "licenses/git.licenses.txt", "licenses/python.licenses.txt",
     "licenses/ripgrep/LICENSE-MIT", "package/LICENSE",
@@ -29,6 +33,31 @@ REQUIRED = [
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def verify_npm_archive(data):
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+            members = archive.getmembers()
+    except (tarfile.TarError, EOFError) as error:
+        raise ValueError("Invalid npm archive") from error
+    require(0 < len(members) <= 10000, "Unexpected npm archive entry count")
+    names = []
+    total_size = 0
+    for member in members:
+        name = member.name.rstrip("/")
+        parts = pathlib.PurePosixPath(name).parts
+        require((name == "npm" or name.startswith("npm/")) and not name.startswith("/") and
+                ".." not in parts and "\\" not in name and
+                not any(part.startswith("._") for part in parts), f"Unsafe npm archive path: {member.name}")
+        require(member.isdir() or member.isreg(), f"Unsupported npm archive entry: {member.name}")
+        names.append(name)
+        total_size += member.size
+    require(all(count == 1 for count in collections.Counter(names).values()), "Duplicate npm archive entries")
+    require(total_size <= 128 * 1024 * 1024, "npm archive expands beyond the size limit")
+    required = {"npm/bin/npm-cli.js", "npm/lib/cli.js", "npm/LICENSE", "npm/package.json",
+                "npm/node_modules/semver/package.json"}
+    require(required <= set(names), "Missing npm archive files: " + ", ".join(sorted(required - set(names))))
 
 
 def elf_sections(data):
@@ -116,6 +145,7 @@ def verify(hap, release=False, product="default"):
         require(any("/libssl.so" in name for name in listed), "Python SSL native library missing")
         package = json.loads(archive.read(RESOURCE + "package/package.json"))
         require(package["version"] == manifest["versions"]["KIMI_CODE_VERSION"], "Kimi version mismatch")
+        verify_npm_archive(archive.read(RESOURCE + "npm.tar.gz"))
         return {"file": pathlib.Path(hap).name, "version": app["versionName"], "versionCode": app["versionCode"],
                 "product": product, "debug": app.get("debug", False), "sizeBytes": pathlib.Path(hap).stat().st_size,
                 "sha256": hashlib.sha256(pathlib.Path(hap).read_bytes()).hexdigest(),

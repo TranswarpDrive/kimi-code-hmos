@@ -7,6 +7,7 @@ import kimihost from 'libkimihost.so';
 import { logRecentCrashes } from './Diagnostics';
 import { Log, redactSecrets, SafeLogLines } from './Log';
 import { KIMI_CODE_VERSION, KIMI_RESFILE_DIR, NODE_VERSION } from './RuntimeInfo';
+import { RuntimeUpdates } from './RuntimeUpdates';
 
 export enum ServerPhase {
   IDLE = 'idle',
@@ -127,7 +128,9 @@ export class KimiServer {
   private operationQueue: Promise<void> = Promise.resolve();
   private disposed: boolean = false;
   private workspaceWarning: string = '';
+  private runtimeWarning: string = '';
   private processGroupPid: number = 0;
+  private runtimeUpdates: RuntimeUpdates = new RuntimeUpdates();
 
   homeDir: string = '';
   logPath: string = '';
@@ -142,8 +145,10 @@ export class KimiServer {
   private forwardTimer: number = -1;
   /** 解压后的原生库目录：node（executableBinaryPaths）、libc++_shared.so、libkimicompat.so */
   private libDir: string = '';
-  /** kimi-code 包目录：<context.resourceDir>/kimicode（resfile 安装时解压出的只读文件） */
+  /** 只读随包资源；更新只替换其中的 Kimi JavaScript 包路径 */
   private kimiRoot: string = '';
+  private packageRoot: string = '';
+  private activeKimiVersion: string = KIMI_CODE_VERSION;
   private workspacePathConfig: string = '';
   private workspaceUriConfig: string = '';
   private customWorkspace: string = '';
@@ -179,12 +184,28 @@ export class KimiServer {
     }
     this.libDir = kimihost.nativeLibDir();
     this.kimiRoot = `${context.resourceDir}/${KIMI_RESFILE_DIR}`;
+    this.runtimeUpdates.init(context);
+    this.selectRuntime();
     Log.info(`native lib dir: ${this.libDir}, kimi root: ${this.kimiRoot}`);
     this.startLogForwarding();
   }
 
   getStatus(): ServerStatus {
     return this.status;
+  }
+
+  get updates(): RuntimeUpdates {
+    return this.runtimeUpdates;
+  }
+
+  currentKimiVersion(): string {
+    return this.activeKimiVersion;
+  }
+
+  private selectRuntime(): void {
+    const active = this.runtimeUpdates.activeRuntime();
+    this.activeKimiVersion = active.version;
+    this.packageRoot = active.updated ? active.packageRoot : `${this.kimiRoot}/package`;
   }
 
   isDebugEnabled(): boolean {
@@ -219,7 +240,14 @@ export class KimiServer {
     next.port = this.status.port;
     next.pid = this.status.pid;
     next.url = phase === ServerPhase.READY ? this.status.url : '';
-    next.warning = phase === ServerPhase.READY ? this.workspaceWarning : '';
+    const warnings: string[] = [];
+    if (this.workspaceWarning !== '') {
+      warnings.push(this.workspaceWarning);
+    }
+    if (this.runtimeWarning !== '') {
+      warnings.push(this.runtimeWarning);
+    }
+    next.warning = phase === ServerPhase.READY ? warnings.join('\n') : '';
     this.status = next;
     Log.info(`server ${phase}: ${message}`);
     for (const listener of this.listeners) {
@@ -324,26 +352,38 @@ export class KimiServer {
     if (this.status.phase === ServerPhase.STARTING || this.status.phase === ServerPhase.READY) {
       return;
     }
-    this.update(ServerPhase.STARTING, '正在检查内置运行时…');
+    this.update(ServerPhase.STARTING, '正在检查运行时…');
+    this.runtimeWarning = '';
     try {
       // PID 会被系统复用；磁盘上的旧 PID 不能作为杀进程的依据。
       this.removePidFile();
       this.rotateLog();
-      this.assertRuntimeInstalled();
       this.debug = pathExists(this.debugFlagPath);
       await this.restoreWorkspacePermission();
-      if (seq !== this.startSeq || this.disposed) {
-        return;
-      }
-      try {
-        await this.launch(seq);
-      } catch (err) {
-        if (seq !== this.startSeq || !this.exitLooksLikeJitFailure()) {
-          throw err as Error;
+      let rolledBack = false;
+      while (seq === this.startSeq && !this.disposed) {
+        this.selectRuntime();
+        const selected = this.runtimeUpdates.activeRuntime();
+        try {
+          this.assertRuntimeInstalled();
+          await this.launchWithJitCheck(seq);
+          return;
+        } catch (err) {
+          if (seq !== this.startSeq) {
+            return;
+          }
+          if (rolledBack || !selected.updated || !selected.pending) {
+            throw err as Error;
+          }
+          rolledBack = true;
+          const failedVersion = selected.version;
+          const reason = err instanceof Error ? err.message : String(err);
+          Log.error(`updated runtime ${failedVersion} failed its first start: ${reason}`);
+          await this.stopProcessGracefully();
+          await this.runtimeUpdates.rollback();
+          this.runtimeWarning = `Kimi Code ${failedVersion} 首次启动失败，已恢复之前的可用版本。`;
+          this.update(ServerPhase.STARTING, this.runtimeWarning);
         }
-        throw new Error(`${String(err)}\n请检查重签 Profile 是否包含 ` +
-          'ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY。缺少该权限时请重新签名安装；' +
-          '若权限已具备，请查看崩溃日志。');
       }
     } catch (err) {
       if (seq !== this.startSeq) {
@@ -363,6 +403,19 @@ export class KimiServer {
     }
   }
 
+  private async launchWithJitCheck(seq: number): Promise<void> {
+    try {
+      await this.launch(seq);
+    } catch (err) {
+      if (seq !== this.startSeq || !this.exitLooksLikeJitFailure()) {
+        throw err as Error;
+      }
+      throw new Error(`${String(err)}\n请检查重签 Profile 是否包含 ` +
+        'ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY。缺少该权限时请重新签名安装；' +
+        '若权限已具备，请查看崩溃日志。');
+    }
+  }
+
   /** 选端口 → 拉起进程 → 等待就绪；未就绪时抛错，被新的 start/stop 取消时直接返回 */
   private async launch(seq: number): Promise<void> {
     const port = await this.pickPort();
@@ -370,7 +423,7 @@ export class KimiServer {
       return;
     }
     this.status.port = port;
-    this.update(ServerPhase.STARTING, `正在启动 Kimi Code 服务（127.0.0.1:${port}）…`);
+    this.update(ServerPhase.STARTING, `正在启动 Kimi Code ${this.activeKimiVersion}（127.0.0.1:${port}）…`);
     this.lastExit = null;
     const pid = this.spawnServer(port, seq);
     this.status.pid = pid;
@@ -380,9 +433,16 @@ export class KimiServer {
     if (seq !== this.startSeq) {
       return;
     }
+    const active = this.runtimeUpdates.activeRuntime();
+    if (active.updated && active.pending && active.version === this.activeKimiVersion) {
+      await this.runtimeUpdates.commit();
+    }
+    if (seq !== this.startSeq || this.disposed) {
+      return;
+    }
     const token = readText(`${this.homeDir}/.kimi-code/server.token`);
     this.status.url = `http://127.0.0.1:${port}/#token=${token}`;
-    this.update(ServerPhase.READY, `已就绪（pid ${pid}）`);
+    this.update(ServerPhase.READY, `已就绪（Kimi Code ${this.activeKimiVersion}，pid ${pid}）`);
   }
 
   private exitLooksLikeJitFailure(): boolean {
@@ -490,6 +550,7 @@ export class KimiServer {
   stopNow(): void {
     this.disposed = true;
     this.startSeq++;
+    this.runtimeUpdates.stopNow();
     this.stopProcess();
     this.update(ServerPhase.IDLE, '已停止');
     if (this.forwardTimer >= 0) {
@@ -555,7 +616,13 @@ export class KimiServer {
       `${this.libDir}/libkimicompat.so`,
       `${this.kimiRoot}/package/dist/main.mjs`,
       `${this.kimiRoot}/package/dist/search-worker.mjs`,
+      `${this.packageRoot}/dist/main.mjs`,
+      `${this.packageRoot}/dist/search-worker.mjs`,
+      `${this.packageRoot}/dist-web/index.html`,
       `${this.kimiRoot}/runtime/ohos-preload.cjs`,
+      `${this.kimiRoot}/runtime/runtime-updater.cjs`,
+      `${this.kimiRoot}/npm.tar.gz`,
+      `${this.kimiRoot}/npm-extract/node_modules/tar/dist/commonjs/index.min.js`,
       `${this.kimiRoot}/bin/node`,
       `${this.kimiRoot}/bin/python3`,
       `${this.kimiRoot}/bin/git`,
@@ -624,9 +691,9 @@ export class KimiServer {
   }
 
   private spawnServer(port: number, seq: number): number {
-    const main = `${this.kimiRoot}/package/dist/main.mjs`;
+    const main = `${this.packageRoot}/dist/main.mjs`;
     const workspace = this.defaultWorkspace();
-    Log.info(`workspace: ${workspace}`);
+    Log.info(`workspace: ${workspace}, kimi-code: ${this.activeKimiVersion}`);
     const args: string[] = [this.nodePath];
     args.push(
       '--require', `${this.kimiRoot}/runtime/ohos-preload.cjs`,
@@ -639,7 +706,7 @@ export class KimiServer {
     if (this.debug) {
       args.push('--log-level', 'debug');
     }
-    const header = `\n===== ${new Date().toISOString()} start kimi-code ${KIMI_CODE_VERSION} on node ${NODE_VERSION}` +
+    const header = `\n===== ${new Date().toISOString()} start kimi-code ${this.activeKimiVersion} on node ${NODE_VERSION}` +
       ` port ${port}\n`;
     writeText(this.logPath, header, true);
     return kimihost.spawn({

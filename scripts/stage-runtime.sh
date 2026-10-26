@@ -118,6 +118,18 @@ mkdir -p "$KIMI_OUT/package" "$KIMI_OUT/runtime" "$KIMI_OUT/licenses"
 # native/ 只是 SEA 自检用的 darwin/linux/win32 原生模块，鸿蒙上用不到
 cp -R "$KIMI_SRC/dist" "$KIMI_SRC/dist-web" "$KIMI_SRC/package.json" "$KIMI_SRC/LICENSE" "$KIMI_OUT/package/"
 cp -R "$DEPS_SRC" "$KIMI_OUT/package/node_modules"
+# npm 作为单个归档携带，避免 HAP 增加数千资源条目；首次更新时由随包 tar 模块解压。
+NPM_SRC="$NODE_SRC/lib/node_modules/npm"
+mkdir -p "$KIMI_OUT/npm-extract/node_modules/@isaacs"
+for name in tar chownr minipass minizlib yallist; do
+  cp -cR "$NPM_SRC/node_modules/$name" "$KIMI_OUT/npm-extract/node_modules/"
+done
+cp -cR "$NPM_SRC/node_modules/@isaacs/fs-minipass" "$KIMI_OUT/npm-extract/node_modules/@isaacs/"
+COPYFILE_DISABLE=1 tar -czf "$KIMI_OUT/npm.tar.gz" \
+  --exclude='._*' --exclude='*/._*' \
+  --exclude='npm/docs' --exclude='npm/man' --exclude='*/.*' \
+  --exclude='*.d.ts' --exclude='*.d.mts' --exclude='*.d.cts' \
+  -C "$NODE_SRC/lib/node_modules" npm
 cp "$ROOT"/runtime/*.cjs "$KIMI_OUT/runtime/"
 cp "$NODE_SRC/LICENSE" "$KIMI_OUT/licenses/node.LICENSE"
 # hvigor 打包资源时会跳过点文件；这里先删掉，保证磁盘上的内容与 HAP 一致

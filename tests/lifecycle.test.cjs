@@ -116,6 +116,7 @@ test('native log drain redacts split tokens, bounded long lines and the final pa
       #include <fcntl.h>
       #include <fstream>
       #include <iterator>
+      #include <regex>
       #include <string>
       #include <sys/stat.h>
       #include <thread>
@@ -128,10 +129,22 @@ test('native log drain redacts split tokens, bounded long lines and the final pa
         assert(pipe(fds) == 0);
         const std::string padding(16381, 'x');
         const std::string longLine(65540, 'y');
-        const std::string input = padding + "#token=Abc._~-09&ok=1\\n" + longLine +
+        const std::string secrets = "  Token:     abc123\\nAuthorization: Bearer xyz\\n"
+          "?access_token=secret&x=1\\n\\\"api_key\\\": \\\"k\\\"\\n";
+        const std::string input = secrets + padding + "#token=Abc._~-09&ok=1\\n" + longLine +
           " token=" + std::string(80000, 'A') + "!\\nfinal token=Last.secret";
-        const std::string expected = padding + "#token=***&ok=1\\n" + longLine +
-          " token=***!\\nfinal token=***";
+        const std::string expected = "  Token:     ***\\nAuthorization: Bearer ***\\n"
+          "?access_token=***\\n\\\"api_key\\\": \\\"***\\\"\\n" + padding + "#token=***\\n" + longLine +
+          " token=***\\nfinal token=***";
+        LogRedactionState state;
+        std::string splitOutput;
+        for (char c : input) {
+          state = RedactLogChunk(std::move(state), std::string(1, c), false);
+          splitOutput += state.output;
+        }
+        state = RedactLogChunk(std::move(state), "", true);
+        splitOutput += state.output;
+        assert(splitOutput == expected);
         std::thread writer([&]() {
           size_t offset = 0;
           while (offset < input.size()) {

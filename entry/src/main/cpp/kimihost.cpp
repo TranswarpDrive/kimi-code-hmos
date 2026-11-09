@@ -19,6 +19,7 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <regex>
 #include <string>
 #include <sys/prctl.h>
 #include <sys/resource.h>
@@ -41,61 +42,56 @@ constexpr int kExecFailedExitCode = 127;
 constexpr off_t kLogLimit = 4 * 1024 * 1024;
 constexpr size_t kLogLineLimit = 64 * 1024;
 
-struct LogRedactionState {
-    std::string line;
-    std::string prefix;
-    std::string output;
-    bool inToken = false;
+static const std::regex kLogRedactionRules[] = {
+    std::regex(R"(([#?&](?:token|access_token|refresh_token|id_token|api_key|key|code|user_code|device_code)=)[^\s&#"'<>]+)",
+        std::regex::ECMAScript | std::regex::icase),
+    std::regex(R"((\bBearer\s+)[A-Za-z0-9._~+\/-]+=*)", std::regex::ECMAScript | std::regex::icase),
+    std::regex(R"((["']?(?:token|api[_-]?key|access[_-]?token|refresh[_-]?token|password|client_secret)["']?\s*[:=]\s*["']?)[^\s,"';}]+)",
+        std::regex::ECMAScript | std::regex::icase)
 };
 
-bool IsTokenChar(char c)
+struct LogRedactionState {
+    std::string line;
+    std::string output;
+};
+
+std::string RedactLogLine(std::string line)
 {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-        c == '.' || c == '_' || c == '~' || c == '-';
+    for (const std::regex &rule : kLogRedactionRules) {
+        line = std::regex_replace(line, rule, "$1***");
+    }
+    return line;
 }
 
-// 纯状态变换：前缀与 token 状态跨 read 和长行保留，原始 token 不进入输出缓冲。
+// 跨 read 缓冲整行；强制刷出时保留末尾密钥的前缀与首字符，继续吞掉后续密钥。
 LogRedactionState RedactLogChunk(LogRedactionState state, const std::string &chunk, bool flush)
 {
     state.output.clear();
-    const std::string marker = "token=";
-    const auto append = [&state](char c) {
-        state.line += c;
-        if (c == '\n' || state.line.size() == kLogLineLimit) {
-            state.output += state.line;
-            state.line.clear();
-        }
-    };
     for (char c : chunk) {
-        if (state.inToken) {
-            if (IsTokenChar(c)) continue;
-            state.inToken = false;
-        }
-        if (state.prefix == marker) {
-            if (IsTokenChar(c)) {
-                for (char value : std::string("token=***")) append(value);
-                state.prefix.clear();
-                state.inToken = true;
-                continue;
+        state.line += c;
+        if (c == '\n') {
+            state.output += RedactLogLine(state.line);
+            state.line.clear();
+        } else if (state.line.size() >= kLogLineLimit) {
+            size_t end = state.line.size();
+            std::string pending;
+            for (const std::regex &rule : kLogRedactionRules) {
+                for (std::sregex_iterator it(state.line.begin(), state.line.end(), rule), last; it != last; ++it) {
+                    const std::smatch &match = *it;
+                    if (static_cast<size_t>(match.position() + match.length()) == state.line.size() &&
+                        static_cast<size_t>(match.position()) < end) {
+                        end = static_cast<size_t>(match.position());
+                        pending = match[1].str() + match.str().substr(match.length(1), 1);
+                    }
+                }
             }
-            for (char value : state.prefix) append(value);
-            state.prefix.clear();
-        }
-        if (c == marker[state.prefix.size()]) {
-            state.prefix += c;
-        } else {
-            for (char value : state.prefix) append(value);
-            state.prefix.clear();
-            if (c == marker[0]) state.prefix += c;
-            else append(c);
+            state.output += RedactLogLine(state.line.substr(0, end));
+            state.line = std::move(pending);
         }
     }
     if (flush) {
-        for (char value : state.prefix) append(value);
-        state.prefix.clear();
-        state.output += state.line;
+        state.output += RedactLogLine(state.line);
         state.line.clear();
-        state.inToken = false;
     }
     return state;
 }

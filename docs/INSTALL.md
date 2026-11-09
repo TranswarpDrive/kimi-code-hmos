@@ -6,7 +6,7 @@
 
 从 [GitHub Releases](https://github.com/TranswarpDrive/kimi-code-hmos/releases) 下载 `*-release-unsigned.hap`，**只需要这一个文件**。这是未签名安装包，需要用自己的华为开发者账号签名后安装。
 
-0.3.0 当前为本地候选，尚未替换公开的 0.2.1。收到候选包时，直接导入该 HAP 重签；实际测试范围见[验证记录](RELEASE-VALIDATION.md)。
+当前版本为 0.4.0，实际测试范围见[验证记录](RELEASE-VALIDATION.md)。
 
 `SHA256SUMS` 仅用于可选的完整性校验，不参与签名或安装。
 
@@ -18,7 +18,7 @@
 macOS 在下载目录中运行：
 
 ```bash
-shasum -a 256 KimiCode-hmos-0.2.1-kimi2.2.0-release-unsigned.hap
+shasum -a 256 KimiCode-hmos-0.4.0-kimi2.2.0-release-unsigned.hap
 ```
 
 Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径> -Algorithm SHA256`。将结果与 `SHA256SUMS` 中对应文件的一行核对。下载完整的全部附件后，也可运行 `shasum -a 256 -c SHA256SUMS`。
@@ -32,7 +32,7 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 3. 导入未签名 HAP，使用工具生成的证书和本设备 Profile 签名、安装。Profile 必须包含包内声明的 ACL，尤其是 `ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY`（JIT）与 `ohos.permission.FILE_ACCESS_PERSIST`（目录持久授权）。不要用删除权限声明的方法绕过签名失败。
 4. 启动 Kimi Code，允许所需的“文档”“下载”和后台运行权限。首次加载需要解压运行时并启动服务。
 5. 登录时在系统浏览器完成 Kimi 设备码授权，回到应用。授权由 Kimi 服务轮询确认。
-6. 用顶部“选择目录”指定项目文件夹，再开始使用。新会话使用新的默认目录；已有会话仍可能保留其原工作目录。
+6. 用标题栏“更多”→“更换工作目录…”指定项目文件夹，再开始使用。新会话使用新的默认目录；已有会话仍可能保留其原工作目录。
 
 发布包不含签名证书、个人账号、会话或开发者设备信息。第三方签名工具各版本的操作界面可能不同，以工具实际提示为准。
 
@@ -46,7 +46,7 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 
 ## 更新内置 CLI 与 WebUI
 
-1. 点击顶部“更新”→“检查更新”。应用只连接官方 `https://registry.npmjs.org`，CLI 与 WebUI 使用同一个 `@moonshot-ai/kimi-code` 版本。
+1. 点击标题栏“更多”→“运行时更新…”→“检查更新”。应用只连接官方 `https://registry.npmjs.org`，CLI 与 WebUI 使用同一个 `@moonshot-ai/kimi-code` 版本。
 2. 发现新版后，先完成或保存正在执行的任务，再点击“下载并更新”并二次确认。下载和校验期间旧服务继续运行，完成后才会重启切换。
 3. 更新安装在应用私有目录，不会修改项目中的 `package.json`、锁文件或 `node_modules`，也不会清除登录、已有会话、工作目录和目录授权。
 4. 新版首次启动失败会自动恢复上一可用版本。更新界面也可手动“恢复随包版本”；恢复同样需要重启，但不删除项目数据。
@@ -76,4 +76,4 @@ Requires a HarmonyOS **PC / 2in1, API 26**. You only need to download the `relea
 
 Keep the same certificate when upgrading and install in place. Uninstalling deletes sandboxed login state, sessions and workspace files. The Web terminal is unavailable; use the Shell tool. Blob/session ZIP downloads are limited to 32 MiB.
 
-The toolbar's **Update** entry downloads matching CLI and Web UI versions from the official npm registry. Downloads are verified and staged before a confirmed restart; a failed first launch rolls back. Projects, sign-in state, sessions and folder grants are preserved. This does not update the HAP shell or native Node runtime. See the [validation record](https://github.com/TranswarpDrive/kimi-code-hmos/blob/v0.2.1/docs/RELEASE-VALIDATION.md) for the exact tested scope.
+**More → Runtime update** in the title bar downloads matching CLI and Web UI versions from the official npm registry. Downloads are verified and staged before a confirmed restart; a failed first launch rolls back. Projects, sign-in state, sessions and folder grants are preserved. This does not update the HAP shell or native Node runtime. See the [validation record](https://github.com/TranswarpDrive/kimi-code-hmos/blob/v0.4.0/docs/RELEASE-VALIDATION.md) for the exact tested scope.

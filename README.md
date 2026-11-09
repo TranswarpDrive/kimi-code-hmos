@@ -3,7 +3,7 @@
   <h1>Kimi Code for HarmonyOS PC</h1>
   <p>在鸿蒙电脑上使用 Kimi Code。</p>
   <p>
-    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.2.1">下载 v0.2.1</a> ·
+    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.4.0">下载 v0.4.0</a> ·
     <a href="docs/INSTALL.md">安装教程</a> ·
     <a href="README.en.md">English</a>
   </p>
@@ -14,7 +14,7 @@
 
 ## 下载与安装
 
-1. **[下载 HAP 安装包](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.2.1/KimiCode-hmos-0.2.1-kimi2.2.0-release-unsigned.hap)**，只需要这一个文件。
+1. **[下载 HAP 安装包](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.4.0/KimiCode-hmos-0.4.0-kimi2.2.0-release-unsigned.hap)**，只需要这一个文件。
 2. 用支持鸿蒙 PC 的签名工具，为自己的设备签名、安装。具体步骤见[安装教程](docs/INSTALL.md)。
 3. 打开应用，登录 Kimi 账号，选择项目文件夹后即可开始使用。
 
@@ -27,8 +27,8 @@
 - 在独立窗口中与 Kimi Code 对话，处理代码和项目文件。
 - 选择本地项目目录，上传文件、搜索会话、导出会话记录。
 - 使用内置的 Python、Git 和 ripgrep，供 Kimi 的 Shell 工具调用。
-- 在顶部工具栏切换目录、重启服务或查看日志。
-- 通过“更新”从官方 npm 升级同一版本的 CLI 与 WebUI；首次启动失败可回滚，不清除项目、登录或会话。
+- 在标题栏的“更多”菜单中切换目录、重启服务或查看日志。
+- 通过“更多”→“运行时更新”从官方 npm 升级同一版本的 CLI 与 WebUI；首次启动失败可回滚，不清除项目、登录或会话。
 
 ## 使用前了解
 
@@ -39,7 +39,7 @@
 | 升级安装 | 沿用原签名证书并覆盖安装；卸载会清除应用内的登录和会话 |
 | 运行时更新 | 只更新 CLI 与 WebUI；HAP 外壳和 Node 等原生运行时仍需覆盖安装新版 |
 
-这是公开测试版。GitHub 当前下载为 0.2.1；源码中的 0.3.0 增加官方运行时更新并包含旧签名器兼容性修复，目前是本地候选。0.3.0 已在 MOR-M1 / API 26 完成官方更新、登录与已有会话保留、Shell 和搜索回归；其他设备、全新安装和长时间运行仍需进一步验证，详见[验证记录](docs/RELEASE-VALIDATION.md)。
+这是公开测试版。当前版本为 0.4.0，已在 MOR-M1 / API 26 完成覆盖安装、界面、Shell 后台任务回收与日志脱敏验证；其他设备、全新安装和长时间运行仍需进一步验证，详见[验证记录](docs/RELEASE-VALIDATION.md)。
 
 遇到问题可以[提交反馈](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml)，说明系统版本、签名工具和复现步骤。附日志前，请先遮住账号凭据和个人对话。
 

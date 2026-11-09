@@ -2,7 +2,23 @@
   "color": [
     {
       "name": "start_window_background",
-      "value": "#121212"
+      "value": "#0d0d0d"
+    },
+    {
+      "name": "shell_bg",
+      "value": "#0d0d0d"
+    },
+    {
+      "name": "shell_surface",
+      "value": "#1a1a1a"
+    },
+    {
+      "name": "shell_border",
+      "value": "#262626"
+    },
+    {
+      "name": "shell_hover",
+      "value": "#14FFFFFF"
     }
   ]
 }

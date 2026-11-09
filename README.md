@@ -10,7 +10,7 @@
   <p>公开测试版 · HarmonyOS PC / API 26 · MIT</p>
 </div>
 
-这是 [Kimi Code](https://www.kimi.com/code) 的非官方鸿蒙 PC 移植版。它把 Kimi Code 的网页界面和运行环境打包成一个独立应用，让你在自己的项目目录中使用 Kimi Code，无需额外安装 Node、Python 或 Git。
+这是 [Kimi Code](https://www.kimi.com/code) 的非官方鸿蒙 PC 移植版。它把 Kimi Code 的网页界面和运行环境打包成一个独立应用，让你在自己的项目目录中使用 Kimi Code，无需额外安装 Node、Python 或 Git。安装包内置 Kimi Code 2.2.0，安装后可在应用内更新到官方最新版。
 
 ## 下载与安装
 
@@ -27,7 +27,7 @@
 - 在独立窗口中与 Kimi Code 对话，处理代码和项目文件。
 - 选择本地项目目录，上传文件、搜索会话、导出会话记录。
 - 使用内置的 Python、Git 和 ripgrep，供 Kimi 的 Shell 工具调用。
-- 在标题栏的“更多”菜单中切换目录、重启服务或查看日志。
+- 标题栏显示当前工作目录；在“更多”菜单中切换目录、重启服务或查看日志。
 - 通过“更多”→“运行时更新”从官方 npm 升级同一版本的 CLI 与 WebUI；首次启动失败可回滚，不清除项目、登录或会话。
 
 ## 使用前了解
@@ -36,12 +36,12 @@
 | --- | --- |
 | 网页终端 | 暂不可用，可以通过 Kimi 的 Shell 工具运行命令 |
 | 文件导出 | 会话 ZIP 和网页生成的文件，单次保存上限为 32 MiB |
-| 升级安装 | 沿用原签名证书并覆盖安装；卸载会清除应用内的登录和会话 |
+| 升级安装 | 沿用原签名证书覆盖安装即可从旧版升级；卸载会清除应用内的登录和会话 |
 | 运行时更新 | 只更新 CLI 与 WebUI；HAP 外壳和 Node 等原生运行时仍需覆盖安装新版 |
 
 这是公开测试版。当前版本为 0.4.0，已在 MOR-M1 / API 26 完成覆盖安装、界面、Shell 后台任务回收与日志脱敏验证；其他设备、全新安装和长时间运行仍需进一步验证，详见[验证记录](docs/RELEASE-VALIDATION.md)。
 
-遇到问题可以[提交反馈](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml)，说明系统版本、签名工具和复现步骤。附日志前，请先遮住账号凭据和个人对话。
+遇到问题可以[提交反馈](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml)，说明系统版本、签名工具和复现步骤。应用写入的日志会自动隐去 token 等凭据，但仍可能包含对话内容，附上前请检查。
 
 ## 从源码构建
 
@@ -57,9 +57,9 @@ KIMI_UNSIGNED_ONLY=1 scripts/build.sh release
 
 维护者：[@TranswarpDrive](https://github.com/TranswarpDrive)。参与开发的 AI 工具包括：
 
-- **Claude（Anthropic）**：早期移植与工程搭建。
+- **Claude（Anthropic）**：早期移植与工程搭建；0.4.0 的界面改版、问题排查与真机验证。
 - **kimi-k3**：后续功能完善。
-- **[Codex（OpenAI）](https://github.com/codex)**：0.2.1 的稳定性修复、测试和发布流程完善。
+- **[Codex（OpenAI）](https://github.com/codex)**：0.2.1 的稳定性修复、测试和发布流程完善；0.4.0 的修复实现与测试。
 
 ## 许可
 

@@ -166,7 +166,9 @@ test('native log drain redacts split tokens, bounded long lines and the final pa
       }
     `);
     execFileSync('c++', ['-std=c++17', '-pthread', path.join(dir, 'test.cpp'), '-o', path.join(dir, 'test')]);
-    assert.match(execFileSync(path.join(dir, 'test'), [path.join(dir, 'server.log')], { encoding: 'utf8' }), /passed/);
+    // 设备用 libc++，其 std::regex 对 64KB 行不深递归；CI 的 libstdc++ 每个字符递归一层，默认 8MB 栈会溢出。
+    const run = 'ulimit -s unlimited 2>/dev/null; exec "$0" "$1"';
+    assert.match(execFileSync('/bin/sh', ['-c', run, path.join(dir, 'test'), path.join(dir, 'server.log')], { encoding: 'utf8' }), /passed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

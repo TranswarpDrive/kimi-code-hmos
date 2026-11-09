@@ -15,6 +15,7 @@
 #include <csignal>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -25,6 +26,7 @@
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 #undef LOG_DOMAIN
@@ -37,34 +39,103 @@ namespace {
 constexpr int kMaxFdToClose = 65536;
 constexpr int kExecFailedExitCode = 127;
 constexpr off_t kLogLimit = 4 * 1024 * 1024;
+constexpr size_t kLogLineLimit = 64 * 1024;
 
-// 子进程输出由原生线程排空并轮转，避免常驻调试把磁盘写满或在 UI 线程搬运大文件。
+struct LogRedactionState {
+    std::string line;
+    std::string prefix;
+    std::string output;
+    bool inToken = false;
+};
+
+bool IsTokenChar(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+        c == '.' || c == '_' || c == '~' || c == '-';
+}
+
+// 纯状态变换：前缀与 token 状态跨 read 和长行保留，原始 token 不进入输出缓冲。
+LogRedactionState RedactLogChunk(LogRedactionState state, const std::string &chunk, bool flush)
+{
+    state.output.clear();
+    const std::string marker = "token=";
+    const auto append = [&state](char c) {
+        state.line += c;
+        if (c == '\n' || state.line.size() == kLogLineLimit) {
+            state.output += state.line;
+            state.line.clear();
+        }
+    };
+    for (char c : chunk) {
+        if (state.inToken) {
+            if (IsTokenChar(c)) continue;
+            state.inToken = false;
+        }
+        if (state.prefix == marker) {
+            if (IsTokenChar(c)) {
+                for (char value : std::string("token=***")) append(value);
+                state.prefix.clear();
+                state.inToken = true;
+                continue;
+            }
+            for (char value : state.prefix) append(value);
+            state.prefix.clear();
+        }
+        if (c == marker[state.prefix.size()]) {
+            state.prefix += c;
+        } else {
+            for (char value : state.prefix) append(value);
+            state.prefix.clear();
+            if (c == marker[0]) state.prefix += c;
+            else append(c);
+        }
+    }
+    if (flush) {
+        for (char value : state.prefix) append(value);
+        state.prefix.clear();
+        state.output += state.line;
+        state.line.clear();
+        state.inToken = false;
+    }
+    return state;
+}
+
+void WriteLog(int &logFd, const std::string &logPath, off_t &size, const std::string &text)
+{
+    if (logFd < 0 || text.empty()) return;
+    if (size + static_cast<off_t>(text.size()) > kLogLimit) {
+        close(logFd);
+        (void)rename(logPath.c_str(), (logPath + ".1").c_str());
+        logFd = open(logPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC, 0600);
+        size = 0;
+        if (logFd < 0) return;
+    }
+    size_t written = 0;
+    while (written < text.size()) {
+        ssize_t n = write(logFd, text.data() + written, text.size() - written);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        written += n;
+        size += n;
+    }
+}
+
+// 子进程输出由原生线程按行脱敏后排空并轮转。
 void DrainLog(int readFd, int logFd, std::string logPath)
 {
     struct stat st {};
     off_t size = logFd >= 0 && fstat(logFd, &st) == 0 ? st.st_size : 0;
     char buffer[16384];
+    LogRedactionState state;
     while (true) {
         ssize_t count = read(readFd, buffer, sizeof(buffer));
         if (count < 0 && errno == EINTR) continue;
         if (count <= 0) break;
-        if (logFd < 0) continue;
-        if (size + count > kLogLimit) {
-            close(logFd);
-            (void)rename(logPath.c_str(), (logPath + ".1").c_str());
-            logFd = open(logPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_APPEND | O_CLOEXEC, 0600);
-            size = 0;
-            if (logFd < 0) continue;
-        }
-        ssize_t written = 0;
-        while (written < count) {
-            ssize_t n = write(logFd, buffer + written, static_cast<size_t>(count - written));
-            if (n < 0 && errno == EINTR) continue;
-            if (n <= 0) break;
-            written += n;
-            size += n;
-        }
+        state = RedactLogChunk(std::move(state), std::string(buffer, static_cast<size_t>(count)), false);
+        WriteLog(logFd, logPath, size, state.output);
     }
+    state = RedactLogChunk(std::move(state), "", true);
+    WriteLog(logFd, logPath, size, state.output);
     close(readFd);
     if (logFd >= 0) close(logFd);
 }
@@ -242,7 +313,30 @@ void CallJsOnExit(napi_env env, napi_value jsCallback, void *context, void *data
     delete event;
 }
 
-void WatchChild(pid_t pid, napi_threadsafe_function tsfn)
+void CleanupShellGroups(int pgidFd)
+{
+    if (pgidFd < 0) return;
+    std::string groups;
+    char buffer[4096];
+    while (true) {
+        const ssize_t count = read(pgidFd, buffer, sizeof(buffer));
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        groups.append(buffer, static_cast<size_t>(count));
+    }
+    size_t offset = 0;
+    while (offset < groups.size()) {
+        const pid_t pgid = static_cast<pid_t>(strtol(groups.c_str() + offset, nullptr, 10));
+        if (pgid > 0) (void)kill(-pgid, SIGKILL);
+        const size_t newline = groups.find('\n', offset);
+        if (newline == std::string::npos) break;
+        offset = newline + 1;
+    }
+    (void)ftruncate(pgidFd, 0);
+    close(pgidFd);
+}
+
+void WatchChild(pid_t pid, napi_threadsafe_function tsfn, int pgidFd)
 {
     int status = 0;
     pid_t ret = -1;
@@ -264,6 +358,8 @@ void WatchChild(pid_t pid, napi_threadsafe_function tsfn)
             usleep(200 * 1000);
         }
     }
+    // 先回收独立会话，再通知 ArkTS；Ability 关闭时也不依赖 JS 回调。
+    CleanupShellGroups(pgidFd);
     OH_LOG_INFO(LOG_APP, "child %{public}d exited code=%{public}d signal=%{public}d", pid, event->code,
                 event->signal);
     if (tsfn == nullptr) {
@@ -354,6 +450,12 @@ napi_value Spawn(napi_env env, napi_callback_info info)
     }
     std::vector<char *> cArgs = ToCArray(args);
     std::vector<char *> cEnvs = ToCArray(envs);
+    std::string pgidPath;
+    const std::string pgidEnv = "KIMI_HMOS_PGID_FILE=";
+    for (const auto &item : envs) {
+        if (item.compare(0, pgidEnv.size(), pgidEnv) == 0) pgidPath = item.substr(pgidEnv.size());
+    }
+    const int pgidFd = pgidPath.empty() ? -1 : open(pgidPath.c_str(), O_RDWR | O_CLOEXEC);
     const char *cwdPtr = cwd.empty() ? nullptr : cwd.c_str();
     pid_t parentPid = getpid();
 
@@ -364,6 +466,7 @@ napi_value Spawn(napi_env env, napi_callback_info info)
     int forkErrno = errno;
     close(logPipe[1]);
     if (pid < 0) {
+        if (pgidFd >= 0) close(pgidFd);
         close(logPipe[0]);
         if (logFd >= 0) close(logFd);
         if (tsfn != nullptr) {
@@ -374,7 +477,7 @@ napi_value Spawn(napi_env env, napi_callback_info info)
 
     OH_LOG_INFO(LOG_APP, "spawned %{public}s pid=%{public}d", file.c_str(), pid);
     std::thread(DrainLog, logPipe[0], logFd, logPath).detach();
-    std::thread(WatchChild, pid, tsfn).detach();
+    std::thread(WatchChild, pid, tsfn, pgidFd).detach();
 
     napi_value result = nullptr;
     napi_create_int32(env, pid, &result);

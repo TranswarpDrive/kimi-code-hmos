@@ -41,6 +41,38 @@ fs.link = function link(existingPath, newPath, callback) {
   fsp.link(existingPath, newPath).then(() => callback(null), (err) => callback(err));
 };
 
+const childProcess = require('node:child_process');
+const originalSpawn = childProcess.spawn;
+childProcess.spawn = function spawn(...args) {
+  const options = Array.isArray(args[1]) ? args[2] : args[1];
+  const child = originalSpawn.apply(this, args);
+  const pgidFile = process.env.KIMI_HMOS_PGID_FILE;
+  if (pgidFile && options && options.detached && child.pid) {
+    const line = `${child.pid}\n`;
+    try {
+      fs.appendFileSync(pgidFile, line, { mode: 0o600 });
+    } catch {
+      // 登记失败不改变命令行为。
+    }
+    child.once('exit', () => {
+      // 组长退出后组内仍可能有 `&` 留下的后台任务，组空了才撤销登记。
+      try {
+        process.kill(-child.pid, 0);
+        return;
+      } catch {
+        // ESRCH：组内已无进程。
+      }
+      try {
+        const groups = fs.readFileSync(pgidFile, 'utf8').split('\n').filter(pid => pid !== String(child.pid) && pid !== '');
+        fs.writeFileSync(pgidFile, groups.length > 0 ? `${groups.join('\n')}\n` : '');
+      } catch {
+        // 清理失败由壳下次启动时回收。
+      }
+    });
+  }
+  return child;
+};
+
 // worker 线程：kimi 创建搜索 worker 时显式传 `execArgv: []`，会丢掉 `--require` 预加载。
 // 给显式 execArgv 补上本文件；搜索使用独立子进程，避免沙箱在线程创建阶段杀掉主服务。
 const workerThreads = require('node:worker_threads');
@@ -111,7 +143,6 @@ if (process.env.KIMI_HMOS_DEBUG === '1') {
       };
     }
   };
-  const childProcess = require('node:child_process');
   traceAll('child_process', childProcess);
   traceAll('fs', fs);
   traceAll('fs.promises', fsp);

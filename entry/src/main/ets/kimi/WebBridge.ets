@@ -104,7 +104,13 @@ export const DOCUMENT_START_SCRIPT: string = `
     return '';
   }
   var blobDownloadPending = false;
-  function downloadBlob(url, name) {
+  function fetchBlob(url) {
+    return fetch(url).then(function (response) {
+      if (!response.ok) { throw new Error('HTTP ' + response.status); }
+      return response.blob();
+    });
+  }
+  function downloadBlob(url, name, blobPromise) {
     var host = window.${BRIDGE_NAME};
     if (!host || typeof host.downloadBlob !== 'function') {
       console.warn('[kimi-hmos] bridge not ready, cannot download blob');
@@ -117,10 +123,7 @@ export const DOCUMENT_START_SCRIPT: string = `
       host.downloadError(message);
     }
     var suggested = String(name || '').trim() || ('download-' + Date.now());
-    fetch(url).then(function (response) {
-      if (!response.ok) { throw new Error('HTTP ' + response.status); }
-      return response.blob();
-    }).then(function (blob) {
+    (blobPromise || fetchBlob(url)).then(function (blob) {
       if (blob.size > 32 * 1024 * 1024) {
         fail('此类文件下载最多支持 32 MiB，请减少导出范围后重试');
         return;
@@ -147,6 +150,10 @@ export const DOCUMENT_START_SCRIPT: string = `
     });
   }
   function openPreview(url) {
+    var previewBlob = fetchBlob(url);
+    previewBlob.catch(function (err) {
+      console.warn('[kimi-hmos] cannot read preview blob: ' + String(err));
+    });
     var overlay = document.createElement('div');
     overlay.setAttribute('data-kimi-hmos-preview', '');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#111;display:flex;flex-direction:column;';
@@ -168,6 +175,7 @@ export const DOCUMENT_START_SCRIPT: string = `
     frame.style.cssText = 'flex:1 1 auto;width:100%;height:calc(100% - 48px);border:0;background:#fff;';
     function closePreview() {
       if (!overlay.parentNode) { return; }
+      previewBlob = null;
       document.removeEventListener('keydown', onKey, true);
       overlay.parentNode.removeChild(overlay);
     }
@@ -178,7 +186,7 @@ export const DOCUMENT_START_SCRIPT: string = `
       }
     }
     downloadButton.addEventListener('click', function () {
-      downloadBlob(url, 'preview-' + Date.now());
+      downloadBlob(url, 'preview-' + Date.now(), previewBlob);
     });
     closeButton.addEventListener('click', closePreview);
     document.addEventListener('keydown', onKey, true);

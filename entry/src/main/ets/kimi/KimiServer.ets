@@ -1,7 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo as fs, fileShare } from '@kit.CoreFileKit';
-import { http } from '@kit.NetworkKit';
+import { http, socket } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import kimihost from 'libkimihost.so';
 import { logRecentCrashes } from './Diagnostics';
@@ -135,6 +135,7 @@ export class KimiServer {
   homeDir: string = '';
   logPath: string = '';
   private pidPath: string = '';
+  private pgidPath: string = '';
   private lastExit: ExitInfo | null = null;
   /** 应用数据目录下存在 debug.flag 时，打开 kimi debug 日志与预加载脚本的调用追踪（很吵，仅排障用） */
   private debug: boolean = false;
@@ -171,6 +172,7 @@ export class KimiServer {
     ensureDir(`${context.filesDir}/workspace`);
     this.logPath = `${logDir}/kimi-server.log`;
     this.pidPath = `${logDir}/kimi-server.pid`;
+    this.pgidPath = `${context.filesDir}/kimi-shell.pgids`;
     this.debugFlagPath = `${context.filesDir}/debug.flag`;
     this.workspacePathConfig = `${context.filesDir}/workspace.path`;
     this.workspaceUriConfig = `${context.filesDir}/workspace.uri`;
@@ -433,12 +435,18 @@ export class KimiServer {
     if (seq !== this.startSeq) {
       return;
     }
+    if (this.status.pid !== pid || !kimihost.isAlive(pid)) {
+      throw new Error(`Kimi Code 服务启动失败（${this.describeLastExit()}），详见日志。`);
+    }
     const active = this.runtimeUpdates.activeRuntime();
     if (active.updated && active.pending && active.version === this.activeKimiVersion) {
       await this.runtimeUpdates.commit();
     }
     if (seq !== this.startSeq || this.disposed) {
       return;
+    }
+    if (this.status.pid !== pid || !kimihost.isAlive(pid)) {
+      throw new Error(`Kimi Code 服务启动失败（${this.describeLastExit()}），详见日志。`);
     }
     const token = readText(`${this.homeDir}/.kimi-code/server.token`);
     this.status.url = `http://127.0.0.1:${port}/#token=${token}`;
@@ -590,6 +598,19 @@ export class KimiServer {
     if (this.processGroupPid === pid) {
       this.processGroupPid = 0;
     }
+    this.cleanupShellGroups();
+  }
+
+  private cleanupShellGroups(): void {
+    if (!pathExists(this.pgidPath)) {
+      return;
+    }
+    for (const line of readText(this.pgidPath).split('\n')) {
+      if (line !== '') {
+        kimihost.kill(Number(line), SIGKILL);
+      }
+    }
+    writeText(this.pgidPath, '', false);
   }
 
   private removePidFile(): void {
@@ -643,11 +664,17 @@ export class KimiServer {
   private async pickPort(): Promise<number> {
     for (let i = 0; i < PORT_ATTEMPTS; i++) {
       const port = PREFERRED_PORT + i;
-      const code = await httpStatus(`http://127.0.0.1:${port}/api/v1/healthz`, 600);
-      if (code < 0) {
+      const probe = socket.constructTCPSocketInstance();
+      const address: socket.NetAddress = { address: '127.0.0.1', port: port, family: 1 };
+      const options: socket.TCPConnectOptions = { address: address, timeout: 600 };
+      try {
+        await probe.connect(options);
+      } catch (err) {
         return port;
+      } finally {
+        await probe.close().catch(() => {});
       }
-      Log.warn(`port ${port} is in use (HTTP ${code})`);
+      Log.warn(`port ${port} is in use (TCP)`);
     }
     throw new Error(`端口 ${PREFERRED_PORT}-${PREFERRED_PORT + PORT_ATTEMPTS - 1} 都被占用`);
   }
@@ -670,6 +697,7 @@ export class KimiServer {
       `PATH=${path}`,
       `GIT_EXEC_PATH=${commandDir}`,
       `KIMI_HMOS_NATIVE_DIR=${this.libDir}`,
+      `KIMI_HMOS_PGID_FILE=${this.pgidPath}`,
       `GIT_TEMPLATE_DIR=${this.kimiRoot}/git/share/git-core/templates`,
       `PYTHONHOME=${this.kimiRoot}/python`,
       `PYTHONPATH=${this.libDir}:${this.kimiRoot}/python/lib/python3.14:${this.kimiRoot}/python/lib/python3.14/site-packages`,
@@ -691,6 +719,12 @@ export class KimiServer {
   }
 
   private spawnServer(port: number, seq: number): number {
+    this.cleanupShellGroups();
+    // 更换 inode，避免旧退出线程清理到新服务登记的进程组。
+    if (pathExists(this.pgidPath)) {
+      fs.unlinkSync(this.pgidPath);
+    }
+    writeText(this.pgidPath, '', false);
     const main = `${this.packageRoot}/dist/main.mjs`;
     const workspace = this.defaultWorkspace();
     Log.info(`workspace: ${workspace}, kimi-code: ${this.activeKimiVersion}`);
@@ -731,6 +765,7 @@ export class KimiServer {
     this.lastExit = exit;
     this.status.pid = 0;
     this.removePidFile();
+    // 独立进程组由原生退出线程回收；这里不再清理，旧服务的回调可能晚于新服务启动。
     // 启动阶段的退出由 waitReady/start 处理。
     if (seq !== this.startSeq || this.status.phase !== ServerPhase.READY) {
       return;

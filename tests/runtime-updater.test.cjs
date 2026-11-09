@@ -216,6 +216,34 @@ test('npm and smoke failures never publish a candidate or change the active runt
   assert.equal(fs.existsSync(path.join(h.root, 'versions', '2.3.2')), false);
 });
 
+test('a downloaded candidate survives a failed newer download and is pruned only after replacement', async t => {
+  const h = harness(t);
+  h.seedActive('2.3.1');
+  await h.run('install', '2.3.2');
+  const candidateFile = path.join(h.root, 'candidate.json');
+  const candidate = fs.readFileSync(candidateFile, 'utf8');
+  const directory = path.join(h.root, 'versions', '2.3.2');
+  const before = snapshot(directory);
+  const install = h.adapters.npmInstall;
+  h.state.latest = '2.3.3';
+  h.adapters.npmInstall = async () => { throw new Error('network failed'); };
+  await assert.rejects(h.run('install', '2.3.3'), /network failed/);
+  assert.equal(fs.readFileSync(candidateFile, 'utf8'), candidate);
+  assert.deepEqual(snapshot(directory), before);
+
+  h.adapters.npmInstall = async (context, staging) => {
+    assert.equal(fs.readFileSync(candidateFile, 'utf8'), candidate);
+    assert.deepEqual(snapshot(directory), before);
+    await install(context, staging);
+  };
+  const installed = await h.run('install', '2.3.3');
+  assert.equal(installed.candidateVersion, '2.3.3');
+  assert.equal(JSON.parse(fs.readFileSync(candidateFile, 'utf8')).version, '2.3.3');
+  assert.equal(fs.existsSync(directory), false);
+  assert.ok(fs.existsSync(path.join(h.root, 'versions', '2.3.3', '.hmos-ready.json')));
+  assert.equal(readState(h.root).activeVersion, '2.3.1');
+});
+
 test('corrupt installed packages cannot activate and an in-use directory is never overwritten', async t => {
   const h = harness(t);
   h.seedActive('2.3.1');

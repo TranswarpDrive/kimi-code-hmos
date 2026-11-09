@@ -27,7 +27,11 @@ function fileActions(writer) {
   const modules = {
     '@kit.CoreFileKit': { fileIo: io, Environment: { getUserDownloadDir: () => '/Download' } },
     '@kit.ArkTS': { util: { Base64Helper: class { decodeSync(text) { return new Uint8Array(Buffer.from(text, 'base64')); } } } },
-    '@kit.ArkWeb': { webview: {} }, './Log': { Log }
+    '@kit.ArkWeb': { webview: { WebDownloadDelegate: class {
+      onBeforeDownload(callback) { this.before = callback; }
+      onDownloadFinish(callback) { this.finish = callback; }
+      onDownloadFailed(callback) { this.failed = callback; }
+    } } }, './Log': { Log }
   };
   return { ...load('kimi/FileActions.ets', modules), files };
 }
@@ -51,6 +55,55 @@ test('failed writes clean up partial files and do not permanently lock downloads
   fail = false;
   await h.FileActions.saveBlobToDownloads('complete.bin', 'YQ==');
   assert.equal(h.files.size, 1);
+});
+
+test('concurrent web downloads reserve paths and release only their own files on termination', () => {
+  const h = fileActions();
+  const firstDelegate = h.FileActions.createDownloadDelegate(noop);
+  const secondDelegate = h.FileActions.createDownloadDelegate(noop);
+  function item(guid, delegate) {
+    return {
+      getGuid: () => guid,
+      getUrl: () => 'https://example.org/report.txt',
+      getSuggestedFileName: () => 'report.txt',
+      getFullPath() { return this.path; },
+      getLastErrorCode: () => 1,
+      start(name) { this.path = name; },
+      cancel() { delegate.failed(this); }
+    };
+  }
+  const first = item('first', firstDelegate);
+  const second = item('second', secondDelegate);
+  firstDelegate.before(first);
+  secondDelegate.before(second);
+  assert.equal(h.files.size, 0);
+  assert.equal(first.path, '/Download/report.txt');
+  assert.equal(second.path, '/Download/report (1).txt');
+  const payload = Buffer.from('second download');
+  h.files.set(second.path, payload);
+  h.files.set(first.path, Buffer.from('partial'));
+  firstDelegate.failed(first);
+  assert.equal(h.files.has(first.path), false);
+  assert.deepEqual(h.files.get(second.path), payload);
+
+  const cancelled = item('cancelled', firstDelegate);
+  firstDelegate.before(cancelled);
+  assert.equal(cancelled.path, first.path);
+  cancelled.cancel();
+  const replacement = item('replacement', firstDelegate);
+  firstDelegate.before(replacement);
+  assert.equal(replacement.path, first.path);
+  h.files.set(replacement.path, payload);
+  firstDelegate.failed(first);
+  assert.deepEqual(h.files.get(replacement.path), payload);
+  firstDelegate.finish(replacement);
+  assert.deepEqual(h.files.get(replacement.path), payload);
+  h.files.delete(replacement.path);
+  const next = item('next', firstDelegate);
+  firstDelegate.before(next);
+  assert.equal(next.path, first.path);
+  firstDelegate.finish(next);
+  secondDelegate.finish(second);
 });
 
 test('oversized bridge payloads are rejected before allocation or file creation', async () => {
@@ -120,6 +173,69 @@ test('bridge is limited to the current origin and injection ignores subframes', 
   }
 });
 
+test('preview downloads retain the blob after the upstream URL expires at 60 seconds', async () => {
+  const { documentStartScript } = load('kimi/WebBridge.ets');
+  const payload = Buffer.from('预览文件内容');
+  const blob = new Blob([payload], { type: 'text/plain' });
+  const url = 'blob:http://127.0.0.1:58637/preview';
+  const downloads = [];
+  const errors = [];
+  const fetched = [];
+  let now = 0;
+  let revoked = false;
+  function element() {
+    return {
+      style: {}, children: [], listeners: {}, parentNode: null,
+      setAttribute: noop,
+      addEventListener(type, callback) { this.listeners[type] = callback; },
+      appendChild(child) { this.children.push(child); child.parentNode = this; },
+      removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
+    };
+  }
+  const body = element();
+  const document = {
+    body, createElement: element, addEventListener: noop, removeEventListener: noop
+  };
+  const window = {
+    open: noop,
+    kimiHost: {
+      downloadBlob: (name, base64) => downloads.push({ name, base64 }),
+      downloadError: message => errors.push(message)
+    }
+  };
+  window.top = window;
+  vm.runInNewContext(documentStartScript('http://127.0.0.1:58637'), {
+    window, document, URL, console,
+    location: { origin: 'http://127.0.0.1:58637', href: 'http://127.0.0.1:58637/' },
+    Date: class extends Date { static now() { return now; } },
+    fetch: async href => {
+      fetched.push(href);
+      if (revoked) throw new Error('blob URL revoked');
+      return { ok: true, blob: async () => blob };
+    },
+    FileReader: class {
+      readAsDataURL(value) {
+        assert.equal(value, blob);
+        this.result = 'data:text/plain;base64,' + payload.toString('base64');
+        this.onload();
+      }
+    }
+  });
+  window.open(url, '_blank');
+  await new Promise(resolve => setImmediate(resolve));
+  now = 61000;
+  revoked = true;
+  const overlay = body.children[0];
+  const toolbar = overlay.children[0];
+  toolbar.children[1].listeners.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(errors, []);
+  assert.deepEqual(downloads, [{ name: 'preview-61000.txt', base64: payload.toString('base64') }]);
+  assert.deepEqual(fetched, [url]);
+  toolbar.children[2].listeners.click();
+  assert.equal(body.children.length, 0);
+});
+
 test('hardlink denial fails without creating a partial destination; EEXIST is preserved', async () => {
   const errors = ['EACCES', 'EPERM', 'ENOSYS', 'EEXIST'];
   for (const code of errors) {
@@ -127,7 +243,8 @@ test('hardlink denial fails without creating a partial destination; EEXIST is pr
     const mock = { promises: { link: async () => { throw failure; } }, linkSync: () => { throw failure; } };
     const modules = {
       'node:fs': mock, 'node:module': { syncBuiltinESMExports: noop },
-      'node:worker_threads': { Worker: class {} }, './process-worker.cjs': { ProcessWorker: class {} }
+      'node:child_process': { spawn: noop }, 'node:worker_threads': { Worker: class {} },
+      './process-worker.cjs': { ProcessWorker: class {} }
     };
     vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, '../runtime/ohos-preload.cjs'), 'utf8'), {
       require: id => modules[id], process: { env: {} }, __filename: '/virtual/preload.cjs'

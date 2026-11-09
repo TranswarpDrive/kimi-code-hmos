@@ -13,6 +13,7 @@ export class WorkspaceSelection {
 export type FileActionNotice = (message: string) => void;
 export const MAX_BLOB_BYTES: number = 32 * 1024 * 1024;
 const WRITE_CHUNK_BYTES: number = 256 * 1024;
+const reservedDownloadPaths: Set<string> = new Set<string>();
 
 function pathExists(path: string): boolean {
   try {
@@ -60,7 +61,7 @@ function uniqueDownloadPath(suggested: string): string {
   for (let index = 0; index < 1000; index++) {
     const candidateName = index === 0 ? name : `${stem} (${index})${suffix}`;
     const candidate = `${directory}/${candidateName}`;
-    if (!pathExists(candidate)) {
+    if (!reservedDownloadPaths.has(candidate) && !pathExists(candidate)) {
       return candidate;
     }
   }
@@ -145,6 +146,7 @@ export class FileActions {
       }
       try {
         const path = uniqueDownloadPath(item.getSuggestedFileName());
+        reservedDownloadPaths.add(path);
         paths.set(item.getGuid(), path);
         item.start(path);
         Log.info(`web download started: ${item.getUrl()} -> ${path}`);
@@ -156,7 +158,9 @@ export class FileActions {
     });
     delegate.onDownloadFinish((item: webview.WebDownloadItem) => {
       const path = paths.get(item.getGuid()) ?? item.getFullPath();
-      paths.delete(item.getGuid());
+      if (paths.delete(item.getGuid())) {
+        reservedDownloadPaths.delete(path);
+      }
       Log.info(`web download finished: ${path}`);
       notify(`下载完成：${path}`);
     });
@@ -165,6 +169,7 @@ export class FileActions {
       paths.delete(item.getGuid());
       if (unfinished !== undefined) {
         try { fs.unlinkSync(unfinished); } catch (err) { Log.warn('cannot remove unfinished web download'); }
+        reservedDownloadPaths.delete(unfinished);
       }
       if (blobDownloads.delete(item.getGuid())) {
         return;

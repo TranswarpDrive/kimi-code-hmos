@@ -316,7 +316,9 @@ function removeCandidate(context) {
 
 function pruneVersions(context, candidateVersion) {
   const state = readState(context.root);
-  const keep = new Set([state.activeVersion, state.previousVersion, candidateVersion].filter(Boolean));
+  const candidate = readOptionalJson(path.join(context.root, 'candidate.json'));
+  const keep = new Set([state.activeVersion, state.previousVersion, candidateVersion,
+    candidate ? candidate.version : ''].filter(Boolean));
   const directory = path.join(context.root, 'versions');
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     if (entry.name.startsWith('.staging-')) {

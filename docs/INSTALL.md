@@ -29,8 +29,8 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 
 1. 在鸿蒙电脑开启开发者模式和 USB/无线调试，允许连接设备的电脑进行调试。
 2. 使用支持鸿蒙 PC 随包二进制签名的工具，例如 [HoKit 桌面版](https://github.com/yabi-zzh/HoKit)，登录**自己的**华为开发者账号。手机端与桌面端的签名实现不同，不能把其中一个版本的测试结果当作另一个版本的保证。
-3. 导入未签名 HAP，使用工具生成的证书和本设备 Profile 签名、安装。Profile 必须包含包内声明的 ACL，尤其是 `ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY`（JIT）与 `ohos.permission.FILE_ACCESS_PERSIST`（目录持久授权）。不要用删除权限声明的方法绕过签名失败。
-4. 启动 Kimi Code，允许所需的“文档”“下载”和后台运行权限。首次加载需要解压运行时并启动服务。
+3. 导入未签名 HAP，使用工具生成的证书和本设备 Profile 签名、安装。Profile 必须包含包内声明的 ACL，尤其是 `ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY`（JIT）、`ohos.permission.FILE_ACCESS_PERSIST`（目录持久授权）与 `ohos.permission.READ_PASTEBOARD`（粘贴其他应用复制的图片和文字）。不要用删除权限声明的方法绕过签名失败。
+4. 启动 Kimi Code，允许所需的“文档”“下载”、剪贴板和后台运行权限。拒绝剪贴板权限后仍可使用，但 Ctrl+V 粘贴不进其他应用复制的内容。首次加载需要解压运行时并启动服务。
 5. 登录时在系统浏览器完成 Kimi 设备码授权，回到应用。授权由 Kimi 服务轮询确认。
 6. 用标题栏“更多”→“更换工作目录…”指定项目文件夹，再开始使用。新会话使用新的默认目录；已有会话仍可能保留其原工作目录。
 
@@ -72,7 +72,7 @@ Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径
 
 ## English
 
-Requires a HarmonyOS **PC / 2in1, API 26**. You only need to download the `release-unsigned.hap`. Checking its SHA-256 against `SHA256SUMS` is optional. Sign the HAP with your own Huawei developer certificate and a profile for your device, using a tool that signs bundled ELF executables. The profile must include the requested JIT and persistent-file-access ACL permissions.
+Requires a HarmonyOS **PC / 2in1, API 26**. You only need to download the `release-unsigned.hap`. Checking its SHA-256 against `SHA256SUMS` is optional. Sign the HAP with your own Huawei developer certificate and a profile for your device, using a tool that signs bundled ELF executables. The profile must include the requested JIT, persistent-file-access and pasteboard-read ACL permissions.
 
 Keep the same certificate when upgrading and install in place. Uninstalling deletes sandboxed login state, sessions and workspace files. The Web terminal is unavailable; use the Shell tool. Blob/session ZIP downloads are limited to 32 MiB.
 

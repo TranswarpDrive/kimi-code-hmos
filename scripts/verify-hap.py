@@ -114,6 +114,7 @@ def verify(hap, release=False, product="default"):
             require(not app.get("debug", False), "A debug build cannot be published as a release")
         permissions = {item["name"] for item in config["requestPermissions"]}
         require("ohos.permission.kernel.ALLOW_WRITABLE_CODE_MEMORY" in permissions, "Missing JIT permission")
+        require("ohos.permission.READ_PASTEBOARD" in permissions, "Missing pasteboard permission for Web paste")
         binaries = [item["path"] for item in config["executableBinaryPaths"]]
         require(len(set(binaries)) == len(binaries), "Duplicate executable declarations")
         expected_binaries = {"libs/arm64-v8a/" + name + ".bin" for name in COMMANDS}

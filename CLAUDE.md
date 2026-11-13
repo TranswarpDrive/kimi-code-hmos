@@ -87,7 +87,8 @@ hdc shell "hilog -T KimiShell"               # 壳日志 + 转发的 node 输出
 - 带 `.permission` 的 bin 不能被 strip；hvigor 只收 libs 下 `.so`，所以 node、python3 与清单中的 Python 原生文件由 `InjectRuntime` 原样注入。
 - 打包工具把 resources 下文件一律不压缩存储，`InjectRuntime` 用 deflate 重写 resfile 条目；当前 HAP 约 105MB。
 - Python 的所有 ELF 必须留在 libs 签名链；纯标准库放 `<kimi>/python/lib/python3.14`，以 `PYTHONHOME`/`PYTHONPATH` 重定位，pycache 指向可写 cacheDir。
-- 重签工具必须把受限权限 `kernel.ALLOW_WRITABLE_CODE_MEMORY` 写进接收方的调试 Profile（HoKit 自动；小白调试助手有 ACL 设置页），否则安装失败。
+- 重签工具必须把受限权限 `kernel.ALLOW_WRITABLE_CODE_MEMORY` 与 `READ_PASTEBOARD` 写进接收方的调试 Profile（HoKit 自动；小白调试助手有 ACL 设置页），否则安装失败。
+- 粘贴图片依赖 `READ_PASTEBOARD`（受限 + 用户授权）：ArkWeb 以应用身份读剪贴板，缺少它时跨应用粘贴为空。devecocli 重新生成 Profile 会换新密钥，但 appIdentifier 不变，实测可覆盖安装并保留数据。
 - 应用 seccomp 对白名单外 syscall 用 TRAP；libuv 无视 `UV_USE_IO_URING=0` 仍会探测 `io_uring_setup`(425)，靠 `libkimicompat.so` 的 SIGSYS→-ENOSYS 兜住。兼容层同时禁止任何线程屏蔽 SIGSYS（屏蔽时被 TRAP 会被强制杀进程）。
 - kimi 登录后创建会话搜索线程时，历史上会触发 SIGSYS；0.2.0 的 `KIMI_HMOS_SEARCH_WORKER_MODE=process` 用独立 Node 子进程执行原 worker，并通过 advanced IPC 保留消息值类型。不能恢复旧的 data URL 主线程内联：ESM 缓存会让第二次初始化超时，伪 terminate 无法释放索引资源。
 - kimi 创建 worker 时显式传 `execArgv: []`，预加载脚本会把自己补进去，否则 worker 里没有补丁。

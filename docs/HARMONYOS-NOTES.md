@@ -63,9 +63,14 @@
   需要已连接的真机用于注册设备。环境变量 `DEVECO_CLI_CLT_PATH` 指向 CLT。
 - 上架分发自带 ELF 需要 AGC “二进制证书”（certType 4），个人开发者拿不到；本项目只做调试签名侧载。
 - 受限权限判定：`provisionEnable == true` 且 `availableLevel ∈ {system_basic, system_core}` 才需 ACL。
-  本项目唯一的受限权限是 `kernel.ALLOW_WRITABLE_CODE_MEMORY`（JIT）；其余为 normal：`INHERIT_PARENT_PERMISSION`、
+  本项目的受限权限是 `kernel.ALLOW_WRITABLE_CODE_MEMORY`（JIT）与 `READ_PASTEBOARD`（user_grant，ArkWeb 粘贴）；其余为 normal：`INHERIT_PARENT_PERMISSION`、
   `INTERNET`、`GET_NETWORK_INFO`、`KEEP_BACKGROUND_RUNNING`、`READ_WRITE_DOCUMENTS_DIRECTORY`、
   `READ_WRITE_DOWNLOAD_DIRECTORY`、`FILE_ACCESS_PERSIST`（devecocli 会把后三个也列进 Profile 的 ACL）。
+- ArkWeb 的 Ctrl+V 以应用身份读系统剪贴板：没有 `READ_PASTEBOARD` 时，粘贴其他应用复制的内容，页面 paste 事件的
+  clipboardData 为空（剪贴板服务日志 `IsPermissionGranted# permission denied`）；授权后其他应用复制的图片（含文件管理器的
+  `text/uri`）以 `image/png` 文件交给页面，上游 Web 自己处理成附件。2026-11-13 在 MOR-M1 上用 DevTools 对比验证。
+  撤销已授予的用户权限会让系统结束应用进程。uitest 与 HoKit 投屏的 Ctrl+V 都到不了 ArkWeb（HoKit 自己同步文本后用输入法注入），
+  测粘贴要用 `setWebDebuggingAccess` + CDP `Input.dispatchKeyEvent`（`commands: ['paste']`）。
 - `signature generate` 按 module.json5 里申请的受限权限生成调试 Profile 的 `allowed-acls`；新增受限权限后要 `--force`
   重新生成（证书也会换新，已安装的旧签名应用需先卸载）。调试 Profile 有效期一年。
 - 本机 `~/.ohos/config/` 里还有其他项目的自动签名材料；本项目的材料名为 `default_kimi-code-hmos_*`。

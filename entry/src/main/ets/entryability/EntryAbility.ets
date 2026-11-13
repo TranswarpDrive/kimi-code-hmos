@@ -3,7 +3,7 @@ import { window } from '@kit.ArkUI';
 import { BackgroundKeeper } from '../kimi/BackgroundKeeper';
 import { KimiServer, ServerPhase, ServerStatus } from '../kimi/KimiServer';
 import { Log } from '../kimi/Log';
-import { requestUserDirPermissions } from '../kimi/Permissions';
+import { requestUserPermissions } from '../kimi/Permissions';
 
 export default class EntryAbility extends UIAbility {
   private keeper: BackgroundKeeper = new BackgroundKeeper();
@@ -30,8 +30,8 @@ export default class EntryAbility extends UIAbility {
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
     this.createShellWindow(windowStage);
-    // 先申请“文档/下载”目录权限再启动服务：子进程启动时就能看到这些目录
-    requestUserDirPermissions(this.context).finally(() => {
+    // 先申请“文档/下载”目录与剪贴板权限再启动服务：子进程启动时就能看到这些目录
+    requestUserPermissions(this.context).finally(() => {
       KimiServer.get().start();
     });
   }

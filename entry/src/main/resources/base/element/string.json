@@ -23,6 +23,10 @@
     {
       "name": "reason_background",
       "value": "窗口最小化时保持 Kimi Code 服务运行"
+    },
+    {
+      "name": "reason_pasteboard",
+      "value": "在对话框中粘贴从其他应用复制的图片和文字"
     }
   ]
 }

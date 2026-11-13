@@ -88,6 +88,18 @@
         }
       },
       {
+        // 受限（ACL）+ 用户授权：ArkWeb 的 Ctrl+V 由本应用身份读系统剪贴板，缺少它时跨应用的图片、文本都粘贴不进来。
+        // 调试 Profile 需带该 ACL；重签工具漏带时安装失败。
+        "name": "ohos.permission.READ_PASTEBOARD",
+        "reason": "$string:reason_pasteboard",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      },
+      {
         "name": "ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY",
         "reason": "$string:reason_download",
         "usedScene": {

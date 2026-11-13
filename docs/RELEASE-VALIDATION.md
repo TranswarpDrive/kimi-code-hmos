@@ -1,25 +1,27 @@
-# 0.4.0 验证记录
+# 0.4.1 验证记录
 
-验证日期：2026-11-09。本版改动集中在外壳界面、服务生命周期与日志脱敏，随包 Kimi Code 仍为 2.2.0，运行时更新机制与 0.3.0 相同。
+验证日期：2026-11-13。本版只增加剪贴板读取权限 `READ_PASTEBOARD`，让 Ctrl+V 能粘贴其他应用复制的图片和文字；其余代码与 0.4.0 相同，随包 Kimi Code 仍为 2.2.0。
 
 ## 本次通过
 
 | 项目 | 方法与结果 |
 | --- | --- |
-| 自动化回归 | `npm run check` 通过；45 项 Node/ArkTS 测试与 7 项 Python 包校验测试全部通过，真实上游搜索测试无跳过。新增覆盖：首次启动提交期间服务退出、TCP 端口探测、并发同名下载、预览 Blob 缓存、候选版本保留、进程组登记与回收、原生日志脱敏 |
-| 构建与 HAP 结构 | macOS Apple Silicon + DevEco CLT 26，`scripts/build.sh release` 编译及 signed/unsigned HAP 校验通过。版本 0.4.0 / 1003000、API 26 / 2in1、9 个可执行文件、219 个运行时文件 |
-| 真机覆盖安装 | MOR-M1（HarmonyOS 7 / API 26）使用既有签名配置 `hdc install -r`，从 0.3.0 系列覆盖安装 0.4.0 成功；未卸载，登录状态、已有会话与默认工作目录保留，服务正常就绪 |
-| 真机后台任务回收 | 在 Shell 工具中用 `&` 启动长时间后台任务，重启服务后确认该进程组已被结束 |
-| 真机日志脱敏 | 删除旧日志并重新生成服务 token 后重启，新日志中 `#token=` 地址与 `Token:` 行均为 `***` |
-| 真机界面（深色） | 沉浸式标题栏拖动与双击最大化、工作目录显示、“更多”菜单各项、运行时更新对话框与二次确认、右侧日志抽屉均正常；对话与 Shell 工具可用 |
+| 自动化回归 | `npm run check` 通过；45 项 Node/ArkTS 测试与 7 项 Python 包校验测试全部通过，真实上游搜索测试无跳过 |
+| 构建与 HAP 结构 | macOS Apple Silicon + DevEco CLT 26，`scripts/build.sh release` 编译及 signed/unsigned HAP 校验通过；版本 0.4.1 / 1003001、API 26 / 2in1；校验确认包内声明 `READ_PASTEBOARD` |
+| 重签与覆盖安装 | 重新生成的调试 Profile 含 `READ_PASTEBOARD` ACL，appIdentifier 不变；MOR-M1（HarmonyOS 7 / API 26）用新签名覆盖安装成功，登录、会话与工作目录保留 |
+| 权限授予 | 首次启动随目录权限一起弹出授权；`atm dump` 确认已授予 |
+| 跨应用粘贴图片 | 在系统图片查看器复制 PNG（剪贴板为 `text/uri`，来源为其他应用），在 Kimi 输入框粘贴：页面 paste 事件收到一个 `image/png` 文件，上游 Web 将其加为图片附件 |
+| 权限对照 | 撤销 `READ_PASTEBOARD` 后重复同一粘贴，clipboardData 为空、剪贴板服务记录 permission denied；恢复授权后再次正常 |
+
+粘贴通过 DevTools 向页面发送浏览器自身的粘贴命令（与实体键盘 Ctrl+V 走同一条剪贴板读取路径）完成；uitest 与 HoKit 投屏的组合键无法送达 ArkWeb，未用实体键盘逐键复测。验证用的 Web 调试开关不在发布包中。
 
 ## 未覆盖与限制
 
-- 浅色主题与服务启动失败页只在构建和代码层面检查，未在真机上实际显示。
-- 本次只使用一台 MOR-M1，不能据此保证其他型号、系统版本或重签工具；未重复全新安装、新账号授权、HoKit/小白重签与长时间后台运行。
-- 运行时官方更新与恢复随包沿用 0.3.0 的真机验收结果，见 [0.3.0 验证记录](RELEASE-VALIDATION-0.3.0.md)。
-- 网页终端仍受 PTY 限制；ZIP/blob 单次导出上限仍为 32 MiB。
+- 截图工具、浏览器“复制图片”等其他图片来源未逐一测试；只验证了图片查看器复制和本应用写入的位图。
+- 拒绝剪贴板权限后应用仍可用，但跨应用粘贴为空；需要到系统设置里重新开启。
+- 重签时 Profile 必须包含 `READ_PASTEBOARD` ACL，否则安装失败；HoKit 一般自动带上，小白调试助手需在 ACL 设置页勾选。本次只验证了 devecocli 生成的调试 Profile。
+- 只使用一台 MOR-M1；其他设备、全新安装与长时间运行未覆盖。其余功能沿用 [0.4.0 验证记录](RELEASE-VALIDATION-0.4.0.md)。
 
-继续以 **Pre-release** 发布并保留本限制说明。
+继续以 **Pre-release** 发布。
 
-[0.3.0](RELEASE-VALIDATION-0.3.0.md) 与 [0.2.0](RELEASE-VALIDATION-0.2.0.md) 验证记录仅作为历史依据。
+[0.4.0](RELEASE-VALIDATION-0.4.0.md)、[0.3.0](RELEASE-VALIDATION-0.3.0.md) 与 [0.2.0](RELEASE-VALIDATION-0.2.0.md) 验证记录仅作为历史依据。

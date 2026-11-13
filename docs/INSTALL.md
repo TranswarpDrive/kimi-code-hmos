@@ -6,7 +6,7 @@
 
 从 [GitHub Releases](https://github.com/TranswarpDrive/kimi-code-hmos/releases) 下载 `*-release-unsigned.hap`，**只需要这一个文件**。这是未签名安装包，需要用自己的华为开发者账号签名后安装。
 
-当前版本为 0.4.0，实际测试范围见[验证记录](RELEASE-VALIDATION.md)。
+当前版本为 0.4.1，实际测试范围见[验证记录](RELEASE-VALIDATION.md)。
 
 `SHA256SUMS` 仅用于可选的完整性校验，不参与签名或安装。
 
@@ -18,7 +18,7 @@
 macOS 在下载目录中运行：
 
 ```bash
-shasum -a 256 KimiCode-hmos-0.4.0-kimi2.2.0-release-unsigned.hap
+shasum -a 256 KimiCode-hmos-0.4.1-kimi2.2.0-release-unsigned.hap
 ```
 
 Linux 可用 `sha256sum`；Windows PowerShell 可用 `Get-FileHash <文件路径> -Algorithm SHA256`。将结果与 `SHA256SUMS` 中对应文件的一行核对。下载完整的全部附件后，也可运行 `shasum -a 256 -c SHA256SUMS`。
@@ -76,4 +76,4 @@ Requires a HarmonyOS **PC / 2in1, API 26**. You only need to download the `relea
 
 Keep the same certificate when upgrading and install in place. Uninstalling deletes sandboxed login state, sessions and workspace files. The Web terminal is unavailable; use the Shell tool. Blob/session ZIP downloads are limited to 32 MiB.
 
-**More → Runtime update** in the title bar downloads matching CLI and Web UI versions from the official npm registry. Downloads are verified and staged before a confirmed restart; a failed first launch rolls back. Projects, sign-in state, sessions and folder grants are preserved. This does not update the HAP shell or native Node runtime. See the [validation record](https://github.com/TranswarpDrive/kimi-code-hmos/blob/v0.4.0/docs/RELEASE-VALIDATION.md) for the exact tested scope.
+**More → Runtime update** in the title bar downloads matching CLI and Web UI versions from the official npm registry. Downloads are verified and staged before a confirmed restart; a failed first launch rolls back. Projects, sign-in state, sessions and folder grants are preserved. This does not update the HAP shell or native Node runtime. See the [validation record](https://github.com/TranswarpDrive/kimi-code-hmos/blob/v0.4.1/docs/RELEASE-VALIDATION.md) for the exact tested scope.

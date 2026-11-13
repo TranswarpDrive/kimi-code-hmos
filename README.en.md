@@ -3,7 +3,7 @@
   <h1>Kimi Code for HarmonyOS PC</h1>
   <p>Use Kimi Code on your HarmonyOS computer.</p>
   <p>
-    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.4.0">Download v0.4.0</a> ·
+    <a href="https://github.com/TranswarpDrive/kimi-code-hmos/releases/tag/v0.4.1">Download v0.4.1</a> ·
     <a href="docs/INSTALL.md">Installation guide</a> ·
     <a href="README.md">中文</a>
   </p>
@@ -14,7 +14,7 @@ An unofficial HarmonyOS PC port of [Kimi Code](https://www.kimi.com/code). It bu
 
 ## Download and install
 
-1. **[Download the HAP](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.4.0/KimiCode-hmos-0.4.0-kimi2.2.0-release-unsigned.hap)**. This is the only file you need to download.
+1. **[Download the HAP](https://github.com/TranswarpDrive/kimi-code-hmos/releases/download/v0.4.1/KimiCode-hmos-0.4.1-kimi2.2.0-release-unsigned.hap)**. This is the only file you need to download.
 2. Sign it for your own device with a tool that supports HarmonyOS PC apps, then install it. Follow the [installation guide](docs/INSTALL.md) for the required signing settings.
 3. Open the app, sign in to Kimi and select your project folder.
 
@@ -25,7 +25,7 @@ An unofficial HarmonyOS PC port of [Kimi Code](https://www.kimi.com/code). It bu
 ## What you can do
 
 - Chat with Kimi Code and work on code and project files in a dedicated window.
-- Choose a local project folder, upload files, search sessions and export conversations.
+- Choose a local project folder, upload files or paste images with Ctrl+V, search sessions and export conversations.
 - Use the bundled Python, Git and ripgrep through Kimi's Shell tool.
 - See the current folder in the title bar, and switch folders, restart the service or view logs from its **More** menu.
 - Update the CLI and Web UI together from the official npm registry via **More → Runtime update**. A failed first launch can roll back without deleting projects, sign-in state or sessions.
@@ -39,7 +39,7 @@ An unofficial HarmonyOS PC port of [Kimi Code](https://www.kimi.com/code). It bu
 | Upgrades | Install over the previous version with the same signing certificate; uninstalling removes the app's login state and sessions |
 | Runtime updates | Update only the CLI and Web UI; the HAP shell and native Node runtime still need a newer signed HAP |
 
-This is a public preview. The current version is 0.4.0. On a MOR-M1 running API 26 it passed in-place upgrade, UI, background Shell task cleanup and log redaction checks. Other devices, fresh installations and extended use need further testing. See the [validation record](docs/RELEASE-VALIDATION.md) for the exact coverage.
+This is a public preview. The current version is 0.4.1. On a MOR-M1 running API 26 it passed in-place upgrade, UI, background Shell task cleanup, log redaction and image paste checks. Other devices, fresh installations and extended use need further testing. See the [validation record](docs/RELEASE-VALIDATION.md) for the exact coverage.
 
 Found a problem? [Open an issue](https://github.com/TranswarpDrive/kimi-code-hmos/issues/new?template=bug_report.yml) with your system version, signing tool and steps to reproduce it. The app removes tokens and other credentials from its logs, but they may still contain conversation content, so review them before attaching.
 
